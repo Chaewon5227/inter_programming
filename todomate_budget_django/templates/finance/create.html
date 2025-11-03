@@ -14,6 +14,14 @@
       {% for c in categories %}<option value="{{ c.id }}">{{ c.name }} ({{ c.kind }})</option>{% endfor %}
     </select>
   </label>
+  <label>Related task (optional)
+    <select name="task">
+      <option value="">-- 일정 미연결 --</option>
+      {% for t in tasks %}
+      <option value="{{ t.id }}">{{ t.title }}</option>
+      {% endfor %}
+    </select>
+  </label>
   <label>Amount <input type="number" step="0.01" name="amount" required/></label>
   <label>Memo <input name="memo"/></label>
   <button type="submit">Create</button>

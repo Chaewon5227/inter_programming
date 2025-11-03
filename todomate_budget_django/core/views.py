@@ -1,0 +1,174 @@
+"""Core level views for the combined planner + budget experience."""
+
+from __future__ import annotations
+
+from datetime import datetime, time, timedelta
+
+from django.db.models import Q, Sum
+from django.shortcuts import redirect, render
+from django.utils import timezone
+
+from finance.models import Account, Category, Transaction
+from tasks.models import Task
+
+
+def _combine_with_date(selected_date, time_str, fallback):
+    """Helper to merge a date with a HH:MM string while keeping timezone awareness."""
+
+    # 문자열이 들어오면 시각을 파싱하고, 없으면 기본값을 사용한다.
+    if time_str:
+        parsed_time = datetime.strptime(time_str, "%H:%M").time()
+    else:
+        parsed_time = fallback
+
+    naive_datetime = datetime.combine(selected_date, parsed_time)
+    # settings.USE_TZ=True 환경에서도 안전하게 시간대를 적용한다.
+    if timezone.is_naive(naive_datetime):
+        return timezone.make_aware(naive_datetime, timezone.get_current_timezone())
+    return naive_datetime
+
+
+def planner_dashboard(request):
+    """일정과 가계부를 하루 단위로 함께 살펴볼 수 있는 대시보드."""
+
+    if not request.user.is_authenticated:
+        return redirect('/admin/login/?next=' + request.path)
+
+    # 조회하고 싶은 날짜를 결정한다. 기본값은 오늘이다.
+    date_param = request.GET.get('date')
+    if date_param:
+        selected_date = datetime.strptime(date_param, "%Y-%m-%d").date()
+    else:
+        selected_date = timezone.localdate()
+
+    # 일정과 거래를 조회할 범위를 하루 단위로 계산한다.
+    day_start = _combine_with_date(selected_date, "00:00", time.min)
+    day_end = _combine_with_date(selected_date, "23:59", time.max)
+
+    # 일정은 시작일 또는 마감일이 해당 날짜에 걸쳐 있는 것만 모은다.
+    tasks = (
+        Task.objects.filter(owner=request.user)
+        .filter(
+            Q(start_at__date=selected_date)
+            | Q(due_at__date=selected_date)
+        )
+        .prefetch_related('linked_transactions__category', 'linked_transactions__account')
+        .order_by('start_at', 'due_at', 'title')
+    )
+
+    # 선택한 날짜에 발생한 모든 거래를 가져온다.
+    transactions = (
+        Transaction.objects.filter(owner=request.user, occurred_at__range=(day_start, day_end))
+        .select_related('account', 'category', 'task')
+        .order_by('occurred_at')
+    )
+
+    # 수입/지출 합계를 미리 계산해 카드에 보여준다.
+    daily_totals = {
+        row['category__kind']: row['total']
+        for row in transactions.values('category__kind').annotate(total=Sum('amount'))
+    }
+
+    # 폼 제출 시 발생한 에러 메시지를 담는 리스트.
+    form_errors = []
+
+    if request.method == 'POST':
+        form_type = request.POST.get('form_type')
+
+        if form_type == 'schedule_entry':
+            # 일정 기본 정보
+            title = request.POST.get('title', '').strip()
+            description = request.POST.get('description', '').strip()
+            start_time = request.POST.get('start_time')
+            end_time = request.POST.get('end_time')
+
+            if not title:
+                form_errors.append('일정 제목을 입력해주세요.')
+
+            if not start_time:
+                form_errors.append('시작 시간을 입력해주세요.')
+
+            if not form_errors:
+                start_at = _combine_with_date(selected_date, start_time, time(hour=9))
+                # 종료 시간은 비어 있다면 1시간 뒤로 잡는다.
+                if end_time:
+                    due_at = _combine_with_date(selected_date, end_time, time(hour=10))
+                else:
+                    due_at = start_at + timedelta(hours=1)
+
+                # 가계부 입력 값에 대한 검증을 먼저 수행한다.
+                amount = request.POST.get('amount')
+                account_id = request.POST.get('account') or None
+                category_id = request.POST.get('category') or None
+                memo = request.POST.get('memo', '').strip()
+                transaction_kwargs = None
+
+                if amount:
+                    if not (account_id and category_id):
+                        form_errors.append('금액을 입력했다면 계정과 분류도 선택해주세요.')
+                    else:
+                        transaction_kwargs = dict(
+                            owner=request.user,
+                            account_id=account_id,
+                            category_id=category_id,
+                            amount=amount,
+                            memo=memo,
+                            occurred_at=start_at,
+                        )
+
+                if not form_errors:
+                    # 일정 레코드를 생성한다.
+                    task = Task.objects.create(
+                        owner=request.user,
+                        title=title,
+                        description=description,
+                        start_at=start_at,
+                        due_at=due_at,
+                        is_all_day=False,
+                    )
+
+                    if transaction_kwargs:
+                        Transaction.objects.create(task=task, **transaction_kwargs)
+
+                    return redirect(f"/planner/?date={selected_date.isoformat()}")
+
+        elif form_type == 'loose_transaction':
+            # 일정과 무관한 단독 지출 입력 처리
+            account_id = request.POST.get('account') or None
+            category_id = request.POST.get('category') or None
+            amount = request.POST.get('amount')
+            memo = request.POST.get('memo', '').strip()
+            occurred_time = request.POST.get('occurred_time')
+
+            if not occurred_time:
+                form_errors.append('소비 시간을 입력해주세요.')
+
+            if not (account_id and category_id and amount):
+                form_errors.append('계정, 분류, 금액을 모두 입력해주세요.')
+
+            if not form_errors:
+                occurred_at = _combine_with_date(selected_date, occurred_time, time(hour=12))
+                Transaction.objects.create(
+                    owner=request.user,
+                    account_id=account_id,
+                    category_id=category_id,
+                    amount=amount,
+                    memo=memo,
+                    occurred_at=occurred_at,
+                )
+                return redirect(f"/planner/?date={selected_date.isoformat()}")
+
+    # 폼을 렌더링할 때 필요한 선택지 준비
+    accounts = Account.objects.filter(owner=request.user)
+    expense_categories = Category.objects.filter(owner=request.user, kind='expense')
+
+    context = {
+        'selected_date': selected_date,
+        'tasks': tasks,
+        'transactions': transactions,
+        'daily_totals': daily_totals,
+        'accounts': accounts,
+        'categories': expense_categories,
+        'form_errors': form_errors,
+    }
+    return render(request, 'planner/dashboard.html', context)

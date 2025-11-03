@@ -15,8 +15,8 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
-    list_display = ("id","owner","account","category","amount","occurred_at","created_at")
-    list_filter = ("category__kind","account")
+    list_display = ("id","owner","account","category","task","amount","occurred_at","created_at")
+    list_filter = ("category__kind","account","task")
     search_fields = ("memo",)
 
 @admin.register(BudgetPeriod)

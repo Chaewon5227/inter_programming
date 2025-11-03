@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="planner-header">
+  <div>
+    <h1>하루 플래너 &amp; 가계부</h1>
+    <p class="subtitle">시간별 일정과 소비를 한눈에 관리하세요.</p>
+  </div>
+  <form method="get" class="date-selector">
+    <label>날짜 선택
+      <input type="date" name="date" value="{{ selected_date|date:'Y-m-d' }}" onchange="this.form.submit()"/>
+    </label>
+  </form>
+</section>
+
+{% if form_errors %}
+<div class="form-errors">
+  <!-- 사용자가 입력을 잘못한 경우 즉시 피드백을 보여준다. -->
+  {% for error in form_errors %}
+  <p>{{ error }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+<section class="insight-cards">
+  <article>
+    <h3>지출 합계</h3>
+    <strong>{{ daily_totals.expense|default:0 }}</strong>
+  </article>
+  <article>
+    <h3>수입 합계</h3>
+    <strong>{{ daily_totals.income|default:0 }}</strong>
+  </article>
+</section>
+
+<div class="planner-grid">
+  <section class="schedule-panel">
+    <header>
+      <h2>일정 타임라인</h2>
+    </header>
+    {% if tasks %}
+    <ul class="timeline">
+      {% for task in tasks %}
+      <li>
+        {% with start=task.start_at|date:"H:i" end=task.due_at|date:"H:i" %}
+        <div class="time-range">
+          <span>{{ start|default:"--:--" }}</span>
+          <span class="arrow">→</span>
+          <span>{{ end|default:"--:--" }}</span>
+        </div>
+        {% endwith %}
+        <div class="task-card">
+          <h3>{{ task.title }}</h3>
+          {% if task.description %}<p class="desc">{{ task.description }}</p>{% endif %}
+          {% with linked=task.linked_transactions.all %}
+          {% if linked|length %}
+          <div class="linked-expense">
+            <h4>연결된 가계부</h4>
+            <ul>
+              {% for tx in linked %}
+              <li>
+                <span>{{ tx.category.name }}</span>
+                <span>{{ tx.amount }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+          {% endwith %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">선택한 날짜에 등록된 일정이 없습니다.</p>
+    {% endif %}
+  </section>
+
+  <section class="ledger-panel">
+    <header>
+      <h2>가계부 기록</h2>
+    </header>
+    <div class="transaction-list">
+      {% for tx in transactions %}
+      <article>
+        <header>
+          <span class="time">{{ tx.occurred_at|date:"H:i" }}</span>
+          <span class="amount">{{ tx.amount }}</span>
+        </header>
+        <p>{{ tx.category.name }} · {{ tx.account.name }}</p>
+        {% if tx.task %}<p class="linked">연결 일정: {{ tx.task.title }}</p>{% endif %}
+        {% if tx.memo %}<p class="memo">{{ tx.memo }}</p>{% endif %}
+      </article>
+      {% empty %}
+      <p class="empty">오늘은 아직 기록된 소비가 없습니다.</p>
+      {% endfor %}
+    </div>
+
+    <div class="ledger-forms">
+      <h3>일정과 함께 기록하기</h3>
+      <form method="post" class="form-card">
+        {% csrf_token %}
+        <input type="hidden" name="form_type" value="schedule_entry"/>
+        <label>제목<input name="title" placeholder="예: 점심 약속" required/></label>
+        <label>설명<textarea name="description" rows="2" placeholder="세부 사항을 메모하세요."></textarea></label>
+        <div class="time-grid">
+          <label>시작<input type="time" name="start_time" required/></label>
+          <label>종료<input type="time" name="end_time"/></label>
+        </div>
+        <div class="amount-grid">
+          <label>계좌
+            <select name="account">
+              <option value="">선택 안 함</option>
+              {% for account in accounts %}
+              <option value="{{ account.id }}">{{ account.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>분류
+            <select name="category">
+              <option value="">선택 안 함</option>
+              {% for category in categories %}
+              <option value="{{ category.id }}">{{ category.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
+        </div>
+        <label>메모<input name="memo" placeholder="필요하면 메모를 남겨주세요."/></label>
+        <button type="submit">일정 + 지출 저장</button>
+      </form>
+
+      <h3>단독 지출 추가</h3>
+      <form method="post" class="form-card">
+        {% csrf_token %}
+        <input type="hidden" name="form_type" value="loose_transaction"/>
+        <div class="time-grid">
+          <label>시간<input type="time" name="occurred_time" required/></label>
+          <label>금액<input type="number" step="0.01" name="amount" required/></label>
+        </div>
+        <label>계좌
+          <select name="account" required>
+            {% for account in accounts %}
+            <option value="{{ account.id }}">{{ account.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>분류
+          <select name="category" required>
+            {% for category in categories %}
+            <option value="{{ category.id }}">{{ category.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>메모<input name="memo" placeholder="어떤 소비였나요?"/></label>
+        <button type="submit">지출만 저장</button>
+      </form>
+    </div>
+  </section>
+</div>
+
+<style>
+  /* 대시보드 전용 레이아웃과 타이포그래피 설정 */
+  .planner-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .planner-header h1 {
+    font-size: 2rem;
+    margin: 0;
+  }
+  .planner-header .subtitle {
+    color: #b9b9b9;
+    margin: 0.35rem 0 0;
+  }
+  .date-selector input[type="date"] {
+    min-width: 200px;
+  }
+  .form-errors {
+    background: #311515;
+    border: 1px solid #ff7373;
+    color: #ffb3b3;
+    padding: 0.75rem 1rem;
+    border-radius: 16px;
+    margin-bottom: 1.5rem;
+  }
+  .form-errors p {
+    margin: 0.25rem 0;
+  }
+  .insight-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .insight-cards article {
+    background: #181818;
+    border-radius: 20px;
+    padding: 1.25rem;
+    border: 1px solid #232323;
+  }
+  .insight-cards h3 {
+    margin: 0 0 0.5rem 0;
+    color: #cfcfcf;
+  }
+  .insight-cards strong {
+    font-size: 1.5rem;
+  }
+  .planner-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 2rem;
+  }
+  .schedule-panel, .ledger-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .schedule-panel header h2, .ledger-panel header h2 {
+    margin: 0;
+  }
+  .timeline {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .timeline li {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 1.5rem;
+    align-items: stretch;
+  }
+  .time-range {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-weight: 600;
+    color: #d4d4d4;
+    letter-spacing: 0.05em;
+  }
+  .time-range .arrow {
+    opacity: 0.5;
+  }
+  .task-card {
+    background: #191919;
+    border: 1px solid #242424;
+    border-radius: 20px;
+    padding: 1.25rem;
+  }
+  .task-card h3 {
+    margin: 0 0 0.5rem 0;
+  }
+  .task-card .desc {
+    margin: 0 0 1rem 0;
+    color: #c4c4c4;
+  }
+  .linked-expense {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed #2f2f2f;
+  }
+  .linked-expense h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.95rem;
+    color: #9f9f9f;
+  }
+  .linked-expense ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0.35rem;
+  }
+  .linked-expense li {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+  }
+  .transaction-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .transaction-list article {
+    background: #191919;
+    border-radius: 18px;
+    padding: 1rem 1.25rem;
+    border: 1px solid #242424;
+  }
+  .transaction-list header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.3rem;
+  }
+  .transaction-list .time {
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+  .transaction-list .amount {
+    font-weight: 700;
+  }
+  .transaction-list .linked {
+    color: #9e9e9e;
+    margin: 0.25rem 0;
+  }
+  .transaction-list .memo {
+    color: #bbbbbb;
+    margin: 0;
+  }
+  .empty {
+    color: #7a7a7a;
+  }
+  .ledger-forms {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .form-card {
+    background: #181818;
+    border-radius: 20px;
+    border: 1px solid #242424;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .form-card label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-weight: 600;
+  }
+  .time-grid, .amount-grid {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .time-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+  .amount-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  @media (max-width: 960px) {
+    .planner-grid {
+      grid-template-columns: 1fr;
+    }
+    .timeline li {
+      grid-template-columns: 1fr;
+    }
+    .time-range {
+      flex-direction: row;
+      justify-content: space-between;
+    }
+  }
+</style>
+{% endblock %}

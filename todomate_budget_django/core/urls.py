@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
+
+from core.views import planner_dashboard
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
@@ -7,6 +9,7 @@ urlpatterns = [
     path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/', include('core.api_urls')),
+    path('planner/', planner_dashboard, name='planner_dashboard'),
     path('tasks/', include('tasks.urls')),
     path('finance/', include('finance.urls')),
 ]

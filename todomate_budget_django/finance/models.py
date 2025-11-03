@@ -37,6 +37,15 @@ class Transaction(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='transactions')
     account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name='transactions')
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='transactions')
+    # 일정과 소비를 함께 관리할 수 있도록 업무(Task)와의 연결 고리를 둔다.
+    task = models.ForeignKey(
+        'tasks.Task',
+        on_delete=models.SET_NULL,
+        related_name='linked_transactions',
+        null=True,
+        blank=True,
+        help_text='관련된 일정이 있다면 선택합니다.'
+    )
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     memo = models.CharField(max_length=255, blank=True)
     occurred_at = models.DateTimeField()

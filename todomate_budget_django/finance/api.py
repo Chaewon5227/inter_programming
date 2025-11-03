@@ -30,9 +30,9 @@ class CategoryViewSet(OwnerViewSetMixin, viewsets.ModelViewSet):
     ordering_fields = ["name","id"]
 
 class TransactionViewSet(OwnerViewSetMixin, viewsets.ModelViewSet):
-    queryset = Transaction.objects.select_related("account","category")
+    queryset = Transaction.objects.select_related("account","category","task")
     serializer_class = TransactionSerializer
-    filterset_fields = ["category__kind","account","category","occurred_at"]
+    filterset_fields = ["category__kind","account","category","occurred_at","task"]
     search_fields = ["memo"]
     ordering_fields = ["occurred_at","amount","id"]
 
