@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>TodoMate + Budget</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+      body { max-width: 960px; margin: 0 auto; padding: 1rem; }
+      nav a { margin-right: .75rem; }
+      .badge { padding: 2px 8px; border-radius: 12px; background:#eee; font-size: .8rem; }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/tasks/">Tasks</a>
+      <a href="/finance/">Finance</a>
+      <a href="/admin/">Admin</a>
+    </nav>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

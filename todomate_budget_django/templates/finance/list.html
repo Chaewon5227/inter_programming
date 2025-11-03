@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Transactions</h2>
+<a role="button" href="/finance/new/">+ New Transaction</a>
+<table>
+  <thead><tr><th>When</th><th>Account</th><th>Category</th><th>Amount</th><th>Memo</th></tr></thead>
+  <tbody>
+    {% for x in transactions %}
+    <tr>
+      <td>{{ x.occurred_at|date:"Y-m-d H:i" }}</td>
+      <td>{{ x.account.name }}</td>
+      <td>{{ x.category.name }}</td>
+      <td style="text-align:right">{{ x.amount }}</td>
+      <td>{{ x.memo }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="5">No transactions yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h3>Totals</h3>
+<ul>
+  {% for t in totals %}
+  <li>{{ t.category__kind }}: {{ t.total }}</li>
+  {% empty %}
+  <li>No totals.</li>
+  {% endfor %}
+</ul>
+{% endblock %}
