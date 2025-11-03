@@ -28,6 +28,13 @@ def _combine_with_date(selected_date, time_str, fallback):
     return naive_datetime
 
 
+def home_redirect(request):
+    """Root URL 접근 시 플래너로 자연스럽게 연결한다."""
+
+    # 메인 페이지를 찾는 사용자를 바로 통합 플래너로 안내한다.
+    return redirect('planner_dashboard')
+
+
 def planner_dashboard(request):
     """일정과 가계부를 하루 단위로 함께 살펴볼 수 있는 대시보드."""
 
