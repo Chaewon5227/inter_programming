@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from tasks.models import Task
 from .models import Account, Category, Transaction, BudgetPeriod, BudgetItem
 
 class AccountSerializer(serializers.ModelSerializer):
@@ -15,9 +16,14 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class TransactionSerializer(serializers.ModelSerializer):
     owner = serializers.ReadOnlyField(source="owner.username")
+    # 일정 연동을 위해 Task 기본 키를 직접 주고받는다.
+    task = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.all(), allow_null=True, required=False
+    )
+
     class Meta:
         model = Transaction
-        fields = ["id","owner","account","category","amount","memo","occurred_at","created_at"]
+        fields = ["id","owner","account","category","task","amount","memo","occurred_at","created_at"]
 
 class BudgetItemSerializer(serializers.ModelSerializer):
     class Meta:
