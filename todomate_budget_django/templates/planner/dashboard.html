@@ -91,6 +91,7 @@
       <div class="detail-grid">
         <section class="schedule-panel">
           <header>
+
             <h2>일정 타임테이블</h2>
           </header>
           {% if timed_tasks %}
@@ -159,6 +160,7 @@
               {% endfor %}
             </ul>
           </div>
+
           {% endif %}
         </section>
 
@@ -868,6 +870,7 @@
     }
     .detail-grid {
       grid-template-columns: 1fr;
+      gap: 0.75rem;
     }
     .timetable {
       border-radius: 18px;
