@@ -91,43 +91,76 @@
       <div class="detail-grid">
         <section class="schedule-panel">
           <header>
-            <h2>일정 타임라인</h2>
+
+            <h2>일정 타임테이블</h2>
           </header>
-          {% if tasks %}
-          <ul class="timeline">
-            {% for task in tasks %}
-            <li>
-              {% with start=task.start_at|date:"H:i" end=task.due_at|date:"H:i" %}
-              <div class="time-range">
-                <span>{{ start|default:"--:--" }}</span>
-                <span class="arrow">→</span>
-                <span>{{ end|default:"--:--" }}</span>
-              </div>
-              {% endwith %}
-              <div class="task-card">
-                <h3>{{ task.title }}</h3>
-                {% if task.description %}<p class="desc">{{ task.description }}</p>{% endif %}
-                {% with linked=task.linked_transactions.all %}
-                {% if linked|length %}
-                <div class="linked-expense">
-                  <h4>연결된 가계부</h4>
-                  <ul>
-                    {% for tx in linked %}
-                    <li>
-                      <span>{{ tx.category.name }}</span>
-                      <span>{{ tx.amount }}</span>
-                    </li>
-                    {% endfor %}
-                  </ul>
+          {% if timed_tasks %}
+          <div class="timetable" role="table">
+            <div class="timetable-header" role="row">
+              <span class="timetable-heading" role="columnheader">시간</span>
+              <span class="timetable-heading" role="columnheader">지출</span>
+              <span class="timetable-heading" role="columnheader">할 일</span>
+            </div>
+            <div class="timetable-body">
+              {% for entry in timed_tasks %}
+              <article class="timetable-row" role="row">
+                <div class="timetable-time" role="cell">
+                  <strong>{{ entry.start_local|date:"H:i"|default:"--:--" }}</strong>
+                  {% if entry.end_local %}
+                  <span class="timetable-time-range">~ {{ entry.end_local|date:"H:i" }}</span>
+                  {% endif %}
                 </div>
-                {% endif %}
-                {% endwith %}
-              </div>
-            </li>
-            {% endfor %}
-          </ul>
+                <div class="timetable-expense" role="cell">
+                  {% if entry.transactions %}
+                  {% for tx in entry.transactions %}
+                  <div class="expense-chip">
+                    <span class="expense-name">{{ tx.category.name }}</span>
+                    <strong class="expense-amount">{{ tx.amount }}</strong>
+                  </div>
+                  {% endfor %}
+                  {% else %}
+                  <span class="empty">지출 없음</span>
+                  {% endif %}
+                </div>
+                <div class="timetable-task" role="cell">
+                  <div class="task-card">
+                    <h3>{{ entry.task.title }}</h3>
+                    {% if entry.task.description %}<p class="desc">{{ entry.task.description }}</p>{% endif %}
+                  </div>
+                </div>
+              </article>
+              {% endfor %}
+            </div>
+          </div>
           {% else %}
-          <p class="empty">선택한 날짜에 등록된 일정이 없습니다.</p>
+          <p class="empty">선택한 날짜에 시간이 설정된 일정이 없습니다.</p>
+          {% endif %}
+
+          {% if untimed_tasks %}
+          <!-- 시간 정보가 없는 할 일을 별도로 묶어준다. -->
+          <div class="untimed-section">
+            <h3>시간 외 할 일</h3>
+            <ul class="untimed-list">
+              {% for entry in untimed_tasks %}
+              <li>
+                <div>
+                  <strong>{{ entry.task.title }}</strong>
+                  {% if entry.task.description %}<p>{{ entry.task.description }}</p>{% endif %}
+                </div>
+                <div class="untimed-expense">
+                  {% if entry.transactions %}
+                  {% for tx in entry.transactions %}
+                  <span>{{ tx.category.name }} {{ tx.amount }}</span>
+                  {% endfor %}
+                  {% else %}
+                  <span class="empty">지출 없음</span>
+                  {% endif %}
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+
           {% endif %}
         </section>
 
@@ -141,19 +174,21 @@
             </div>
           </header>
           <div class="transaction-list">
-            {% for tx in transactions %}
+            {% if loose_transactions %}
+            <h3 class="loose-title">일정 외 지출</h3>
+            {% for tx in loose_transactions %}
             <article>
               <header>
                 <span class="time">{{ tx.occurred_at|date:"H:i" }}</span>
                 <span class="amount">{{ tx.amount }}</span>
               </header>
               <p>{{ tx.category.name }} · {{ tx.account.name }}</p>
-              {% if tx.task %}<p class="linked">연결 일정: {{ tx.task.title }}</p>{% endif %}
               {% if tx.memo %}<p class="memo">{{ tx.memo }}</p>{% endif %}
             </article>
-            {% empty %}
-            <p class="empty">오늘은 아직 기록된 소비가 없습니다.</p>
             {% endfor %}
+            {% else %}
+            <p class="empty">일정과 분리된 지출이 없습니다.</p>
+            {% endif %}
           </div>
         </section>
       </div>
@@ -587,30 +622,81 @@
   .ledger-panel header h2 {
     margin: 0;
   }
-  .timeline {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  .timetable {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    overflow: hidden;
+    background: #ffffff;
   }
-  .timeline li {
+  .timetable-header,
+  .timetable-row {
     display: grid;
-    grid-template-columns: 120px 1fr;
-    gap: 1.5rem;
+    grid-template-columns: 120px 1fr 1.2fr;
     align-items: stretch;
   }
-  .time-range {
+  .timetable-header {
+    background: #ffd6f5;
+    color: #111111;
+    font-weight: 700;
+    padding: 0.75rem 1.25rem;
+    gap: 1rem;
+  }
+  .timetable-heading {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .timetable-body {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+  }
+  .timetable-row {
+    gap: 1rem;
+    border-top: 1px solid #f1f3f5;
+    padding: 1rem 1.25rem;
+    background: #ffffff;
+  }
+  .timetable-time {
+    display: flex;
+    flex-direction: column;
     font-weight: 600;
     color: #334155;
     letter-spacing: 0.05em;
+    gap: 0.35rem;
   }
-  .time-range .arrow {
-    opacity: 0.5;
+  .timetable-time-range {
+    font-size: 0.9rem;
+    color: #6b7280;
+  }
+  .timetable-expense {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .timetable-task {
+    display: flex;
+    align-items: stretch;
+  }
+  .expense-chip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fdf2ff;
+    border: 1px solid #f5d0fe;
+    border-radius: 12px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
+  }
+  .expense-name {
+    color: #4b5563;
+  }
+  .expense-amount {
+    color: #c026d3;
+  }
+  .timetable-task .task-card {
+    height: 100%;
   }
   .task-card {
     background: #ffffff;
@@ -625,32 +711,58 @@
     margin: 0 0 1rem 0;
     color: #4b5563;
   }
-  .linked-expense {
-    margin-top: 1rem;
-    padding-top: 0.75rem;
-    border-top: 1px dashed #d0d7de;
+  .untimed-section {
+    margin-top: 1.5rem;
+    background: #fff7fb;
+    border: 1px solid #fbcfe8;
+    border-radius: 18px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
-  .linked-expense h4 {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.95rem;
-    color: #4f5d75;
+  .untimed-section h3 {
+    margin: 0;
   }
-  .linked-expense ul {
+  .untimed-list {
+    list-style: none;
     margin: 0;
     padding: 0;
-    list-style: none;
-    display: grid;
-    gap: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
-  .linked-expense li {
+  .untimed-list li {
     display: flex;
     justify-content: space-between;
-    font-size: 0.95rem;
+    gap: 1rem;
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    border: 1px solid #f8bbd0;
+  }
+  .untimed-list li p {
+    margin: 0.35rem 0 0;
+    color: #6b7280;
+  }
+  .untimed-expense {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-weight: 600;
+    color: #c026d3;
+    min-width: 140px;
+    text-align: right;
   }
   .transaction-list {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+  .transaction-list .loose-title {
+    margin: 0;
+    font-size: 1rem;
+    color: #334155;
   }
   .transaction-list article {
     background: #ffffff;
@@ -758,15 +870,32 @@
     }
     .detail-grid {
       grid-template-columns: 1fr;
-    }
-    .timeline li {
-      grid-template-columns: 1fr;
       gap: 0.75rem;
     }
-    .time-range {
-      align-items: flex-start;
-      flex-direction: row;
-      gap: 0.5rem;
+    .timetable {
+      border-radius: 18px;
+    }
+    .timetable-header,
+    .timetable-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .timetable-header {
+      display: none;
+    }
+    .timetable-row {
+      border-top: 1px solid #f1f3f5;
+      padding: 1rem;
+    }
+    .timetable-time,
+    .timetable-expense,
+    .timetable-task {
+      gap: 0.25rem;
+    }
+    .timetable-expense {
+      order: 3;
+    }
+    .timetable-task {
+      order: 2;
     }
   }
   @media (max-width: 640px) {

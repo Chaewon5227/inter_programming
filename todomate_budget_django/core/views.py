@@ -124,6 +124,33 @@ def planner_dashboard(request):
         .order_by('occurred_at')
     )
 
+    # 타임라인 UI에서 시간을 가진 일정과 그렇지 않은 일정을 분리한다.
+    timed_tasks: list[dict[str, object]] = []
+    untimed_tasks: list[dict[str, object]] = []
+
+    for task in tasks:
+        # 템플릿에서 반복적으로 지역 시간을 계산하지 않도록 미리 변환해 둔다.
+        start_local = timezone.localtime(task.start_at) if task.start_at else None
+        end_local = timezone.localtime(task.due_at) if task.due_at else None
+        linked_transactions = list(task.linked_transactions.all())
+
+        task_payload = {
+            'task': task,
+            'start_local': start_local,
+            'end_local': end_local,
+            'transactions': linked_transactions,
+        }
+
+        if start_local or end_local:
+            timed_tasks.append(task_payload)
+        else:
+            untimed_tasks.append(task_payload)
+
+    # 일정에 연결되지 않은 지출은 별도의 섹션에 보여준다.
+    loose_transactions = [
+        tx for tx in transactions if tx.task_id is None
+    ]
+
     # 수입/지출 합계를 미리 계산해 카드에 보여준다.
     daily_totals = {
         row['category__kind']: row['total']
@@ -227,6 +254,9 @@ def planner_dashboard(request):
         'selected_date': selected_date,
         'tasks': tasks,
         'transactions': transactions,
+        'timed_tasks': timed_tasks,
+        'untimed_tasks': untimed_tasks,
+        'loose_transactions': loose_transactions,
         'daily_totals': daily_totals,
         'accounts': accounts,
         'categories': expense_categories,
