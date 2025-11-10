@@ -234,6 +234,53 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
         tx for tx in transactions if tx.task_id is None
     ]
 
+    # 0시부터 23시까지의 타임라인 블록을 미리 구성해 둔다.
+    hourly_map: dict[int, dict[str, object]] = {
+        hour: {
+            'hour': hour,
+            'label': f"{hour:02d}:00",
+            'events': [],
+            'transactions': [],
+            'todos': [],
+            'is_after_hours': False,
+        }
+        for hour in range(24)
+    }
+
+    for entry in timed_tasks:
+        # 시작 시간이 없지만 종료 시간이 있는 경우 종료 시각을 기준으로 표시한다.
+        reference_time = entry['start_local'] or entry['end_local']
+        if not reference_time:
+            continue
+
+        hour = reference_time.hour
+        hour_block = hourly_map.get(hour)
+        if hour_block is None:
+            continue
+
+        # 같은 시간대에 여러 일정이 존재할 수 있으므로 리스트로 모은다.
+        hour_block['events'].append(entry)
+
+        # 연결된 지출은 해당 시간대의 지출 열에 함께 노출한다.
+        hour_block['transactions'].extend(entry['transactions'])
+
+        # 할 일 열에는 체크박스로 표현하기 위해 Task 객체만 별도로 모은다.
+        hour_block['todos'].append(entry['task'])
+
+    hourly_schedule = [hourly_map[hour] for hour in range(24)]
+
+    # 24시 이후에 처리할 일정 외 지출과 시간 외 할 일을 위한 가상의 행을 추가한다.
+    hourly_schedule.append(
+        {
+            'hour': 24,
+            'label': '24:00 이후',
+            'events': [],
+            'transactions': loose_transactions,
+            'todos': [entry['task'] for entry in untimed_tasks],
+            'is_after_hours': True,
+        }
+    )
+
     # 수입/지출 합계를 미리 계산해 카드에 보여준다.
     daily_totals = {
         row['category__kind']: row['total']
@@ -250,6 +297,7 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
         'timed_tasks': timed_tasks,
         'untimed_tasks': untimed_tasks,
         'loose_transactions': loose_transactions,
+        'hourly_schedule': hourly_schedule,
         'daily_totals': daily_totals,
         'accounts': accounts,
         'categories': expense_categories,
