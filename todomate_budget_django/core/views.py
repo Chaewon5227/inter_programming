@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+import calendar
+from datetime import date, datetime, time, timedelta
 
 from django.db.models import Q, Sum
 from django.shortcuts import redirect, render
@@ -51,6 +52,59 @@ def planner_dashboard(request):
     # 일정과 거래를 조회할 범위를 하루 단위로 계산한다.
     day_start = _combine_with_date(selected_date, "00:00", time.min)
     day_end = _combine_with_date(selected_date, "23:59", time.max)
+
+    # 월간 달력 구성에 필요한 기준 날짜를 계산한다.
+    first_of_month = selected_date.replace(day=1)
+    # 32일을 더하면 항상 다음 달로 이동한다는 점을 활용한다.
+    next_month_base = first_of_month + timedelta(days=32)
+    prev_month_base = first_of_month - timedelta(days=1)
+    next_month = next_month_base.replace(day=1)
+    prev_month = prev_month_base.replace(day=1)
+
+    # 달력에 노출할 주차 데이터를 만들기 위한 캘린더 도우미를 준비한다.
+    cal = calendar.Calendar(firstweekday=6)  # 6=일요일을 주의 시작으로 지정한다.
+    today = timezone.localdate()
+
+    # 선택한 월에 속한 일정이 있는 날짜를 빠르게 찾기 위한 매핑을 만든다.
+    month_range_end_day = calendar.monthrange(selected_date.year, selected_date.month)[1]
+    month_start = first_of_month
+    month_end = first_of_month.replace(day=month_range_end_day)
+
+    # 월 단위 일정 데이터를 가져와 날짜별로 묶는다.
+    monthly_tasks = (
+        Task.objects.filter(owner=request.user)
+        .filter(
+            Q(start_at__date__range=(month_start, month_end))
+            | Q(due_at__date__range=(month_start, month_end))
+        )
+        .only('id', 'start_at', 'due_at')
+    )
+
+    tasks_by_day: dict[date, set[int]] = {}
+    for task in monthly_tasks:
+        # 시작일과 마감일이 같은 날짜일 수 있으므로 집합으로 관리한다.
+        for dt_field in (task.start_at, task.due_at):
+            if not dt_field:
+                continue
+            localized_date = timezone.localtime(dt_field).date()
+            if month_start <= localized_date <= month_end:
+                tasks_by_day.setdefault(localized_date, set()).add(task.id)
+
+    # 달력에 주차별로 필요한 정보를 구성한다.
+    calendar_weeks = []
+    for week in cal.monthdatescalendar(selected_date.year, selected_date.month):
+        week_cells = []
+        for day in week:
+            week_cells.append(
+                {
+                    'date': day,
+                    'in_month': day.month == selected_date.month,
+                    'is_today': day == today,
+                    'is_selected': day == selected_date,
+                    'task_count': len(tasks_by_day.get(day, set())),
+                }
+            )
+        calendar_weeks.append(week_cells)
 
     # 일정은 시작일 또는 마감일이 해당 날짜에 걸쳐 있는 것만 모은다.
     tasks = (
@@ -177,5 +231,9 @@ def planner_dashboard(request):
         'accounts': accounts,
         'categories': expense_categories,
         'form_errors': form_errors,
+        'calendar_weeks': calendar_weeks,
+        'calendar_weekdays': ['일', '월', '화', '수', '목', '금', '토'],
+        'prev_month': prev_month,
+        'next_month': next_month,
     }
     return render(request, 'planner/dashboard.html', context)
