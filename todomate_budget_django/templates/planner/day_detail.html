@@ -41,12 +41,13 @@
       <h2>일정 타임테이블</h2>
       <p>선택한 날짜의 일정과 지출을 시간 순으로 정리했습니다.</p>
     </header>
-    <!-- 24시간 타임라인을 일정/지출 두 축으로 정리한다. -->
+    <!-- 24시간 타임라인을 일정/지출/할 일 세 축으로 정리한다. -->
     <div class="timeline-grid" role="table">
       <div class="timeline-header" role="row">
         <span class="timeline-heading" role="columnheader">시간</span>
         <span class="timeline-heading" role="columnheader">일정</span>
         <span class="timeline-heading" role="columnheader">지출</span>
+        <span class="timeline-heading" role="columnheader">할 일</span>
       </div>
       <div class="timeline-body">
         {% for block in hourly_schedule %}
@@ -88,39 +89,35 @@
             <span class="empty" aria-hidden="true">—</span>
             {% endif %}
           </div>
+          <!-- 동일 타임라인에서 할 일을 함께 보여준다. -->
+          <div class="timeline-cell todo" role="cell">
+            {% if block.todos %}
+            {% for entry in block.todos %}
+            {% with todo=entry.task %}
+            <form method="post" action="{% url 'planner_toggle_todo' todo.id %}" class="todo-item-form{% if todo.status == 'done' %} is-done{% endif %}" data-todo-form>
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}"/>
+              <input type="hidden" name="status" value="{{ todo.status }}" data-todo-status/>
+              <label class="todo-item">
+                <input type="checkbox" {% if todo.status == 'done' %}checked{% endif %} data-todo-checkbox/>
+                <span>
+                  <strong>{{ todo.title }}</strong>
+                  {% if todo.description %}<small>{{ todo.description }}</small>{% endif %}
+                </span>
+              </label>
+              <button type="submit" class="todo-submit">상태 저장</button>
+            </form>
+            {% endwith %}
+            {% endfor %}
+            {% elif block.is_after_hours %}
+            <span class="empty">등록된 할 일이 없습니다.</span>
+            {% else %}
+            <span class="empty" aria-hidden="true">—</span>
+            {% endif %}
+          </div>
         </div>
         {% endfor %}
       </div>
-    </div>
-  </section>
-
-  <section class="todo-panel">
-    <header>
-      <h2>할 일 목록</h2>
-      <p>일정과 별도로 관리하는 할 일을 체크해서 완료 처리하세요.</p>
-    </header>
-    <div class="todo-list">
-      {% if untimed_tasks %}
-      {% for entry in untimed_tasks %}
-      {% with todo=entry.task %}
-      <form method="post" action="{% url 'planner_toggle_todo' todo.id %}" class="todo-item-form{% if todo.status == 'done' %} is-done{% endif %}" data-todo-form>
-        {% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.get_full_path }}"/>
-        <input type="hidden" name="status" value="{{ todo.status }}" data-todo-status/>
-        <label class="todo-item">
-          <input type="checkbox" {% if todo.status == 'done' %}checked{% endif %} data-todo-checkbox/>
-          <span>
-            <strong>{{ todo.title }}</strong>
-            {% if todo.description %}<small>{{ todo.description }}</small>{% endif %}
-          </span>
-        </label>
-        <button type="submit" class="todo-submit">상태 저장</button>
-      </form>
-      {% endwith %}
-      {% endfor %}
-      {% else %}
-      <p class="empty">등록된 할 일이 없습니다.</p>
-      {% endif %}
     </div>
   </section>
 </div>
@@ -421,12 +418,9 @@
     background: #2d2d2d;
   }
   .detail-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-    gap: 2rem;
+    display: block;
   }
-  .schedule-panel,
-  .todo-panel {
+  .schedule-panel {
     background: #ffffff;
     border: 1px solid #e5e7eb;
     border-radius: 22px;
@@ -435,12 +429,10 @@
     flex-direction: column;
     gap: 1.5rem;
   }
-  .schedule-panel header h2,
-  .todo-panel header h2 {
+  .schedule-panel header h2 {
     margin: 0;
   }
-  .schedule-panel header p,
-  .todo-panel header p {
+  .schedule-panel header p {
     margin: 0.35rem 0 0;
     color: #6b7280;
   }
@@ -455,7 +447,7 @@
   .timeline-header,
   .timeline-row {
     display: grid;
-    grid-template-columns: 120px repeat(2, minmax(0, 1fr));
+    grid-template-columns: 120px repeat(3, minmax(0, 1fr));  /* 시간 + 일정/지출/할 일 세 개의 열을 배치한다. */
     align-items: stretch;
     gap: 1.25rem;
   }
@@ -543,11 +535,6 @@
   .timeline-cell .empty {
     color: #94a3b8;
     font-size: 0.85rem;
-  }
-  .todo-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.85rem;
   }
   .todo-item-form {
     display: flex;
@@ -686,9 +673,6 @@
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
   @media (max-width: 1080px) {
-    .detail-grid {
-      grid-template-columns: 1fr;
-    }
     .daily-cards {
       flex-wrap: wrap;
     }

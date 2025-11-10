@@ -277,6 +277,7 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
             'label': f"{hour:02d}:00",
             'events': [],
             'transactions': [],
+            'todos': [],  # 시간대별 할 일 열을 함께 노출하기 위해 기본 리스트를 준비한다.
             'is_after_hours': False,
         }
         for hour in range(24)
@@ -308,6 +309,7 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
             'label': '기타',
             'events': [],
             'transactions': loose_transactions,
+            'todos': untimed_tasks,  # 시간 정보가 없는 할 일은 가장 아래 기타 행에서 묶어 보여준다.
             'is_after_hours': True,
         }
     )
@@ -326,7 +328,6 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
         'tasks': tasks,
         'transactions': transactions,
         'timed_tasks': timed_tasks,
-        'untimed_tasks': untimed_tasks,
         'loose_transactions': loose_transactions,
         'hourly_schedule': hourly_schedule,
         'daily_totals': daily_totals,
