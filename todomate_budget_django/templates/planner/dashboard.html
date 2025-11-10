@@ -5,11 +5,10 @@
     <h1>하루 플래너 &amp; 가계부</h1>
     <p class="subtitle">시간별 일정과 소비를 한눈에 관리하세요.</p>
   </div>
-  <form method="get" class="date-selector">
-    <label>날짜 선택
-      <input type="date" name="date" value="{{ selected_date|date:'Y-m-d' }}" onchange="this.form.submit()"/>
-    </label>
-  </form>
+  <div class="selected-date-chip">
+    <!-- 달력 선택 결과를 시각적으로 보여주는 칩 -->
+    <span>{{ selected_date|date:"Y년 n월 j일" }}</span>
+  </div>
 </section>
 
 {% if form_errors %}
@@ -32,154 +31,174 @@
   </article>
 </section>
 
-<div class="planner-grid">
-  <section class="schedule-panel">
-    <header>
-      <h2>일정 타임라인</h2>
+<div class="planner-layout">
+  <aside class="calendar-panel">
+    <header class="calendar-header">
+      <a class="calendar-nav" href="?date={{ prev_month|date:'Y-m-d' }}" aria-label="이전 달">‹</a>
+      <div class="calendar-title">{{ selected_date|date:"Y년 n월" }}</div>
+      <a class="calendar-nav" href="?date={{ next_month|date:'Y-m-d' }}" aria-label="다음 달">›</a>
     </header>
-    {% if tasks %}
-    <ul class="timeline">
+    <table class="calendar-grid">
+      <thead>
+        <tr>
+          {% for weekday in calendar_weekdays %}
+          <th scope="col">{{ weekday }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for week in calendar_weeks %}
+        <tr>
+          {% for day in week %}
+          <td class="day-cell{% if not day.in_month %} is-out{% endif %}{% if day.is_today %} is-today{% endif %}{% if day.is_selected %} is-selected{% endif %}">
+            <a href="?date={{ day.date|date:'Y-m-d' }}" aria-current="{% if day.is_selected %}date{% else %}false{% endif %}">
+              <span class="day-number">{{ day.date.day }}</span>
+              {% if day.task_count %}
+              <span class="task-dot" aria-label="일정 {{ day.task_count }}개">{{ day.task_count }}</span>
+              {% endif %}
+            </a>
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </aside>
+
+  <section class="task-summary-panel">
+    <header>
+      <h2>할 일 목록</h2>
+      <p>선택한 날짜의 일정들을 간단히 확인하세요.</p>
+    </header>
+    <ul class="task-list">
+      {% if tasks %}
       {% for task in tasks %}
       <li>
-        {% with start=task.start_at|date:"H:i" end=task.due_at|date:"H:i" %}
-        <div class="time-range">
-          <span>{{ start|default:"--:--" }}</span>
-          <span class="arrow">→</span>
-          <span>{{ end|default:"--:--" }}</span>
+        <div class="task-time">{{ task.start_at|date:"H:i"|default:"--:--" }} - {{ task.due_at|date:"H:i"|default:"--:--" }}</div>
+        <div class="task-info">
+          <strong>{{ task.title }}</strong>
+          {% if task.description %}<p>{{ task.description }}</p>{% endif %}
         </div>
-        {% endwith %}
-        <div class="task-card">
-          <h3>{{ task.title }}</h3>
-          {% if task.description %}<p class="desc">{{ task.description }}</p>{% endif %}
-          {% with linked=task.linked_transactions.all %}
-          {% if linked|length %}
-          <div class="linked-expense">
-            <h4>연결된 가계부</h4>
-            <ul>
-              {% for tx in linked %}
+      </li>
+      {% endfor %}
+      {% else %}
+      <li class="empty">선택한 날짜에 등록된 일정이 없습니다.</li>
+      {% endif %}
+    </ul>
+    <button type="button" id="toggleDetails" class="more-button" data-expanded="false" aria-expanded="false">더보기</button>
+
+    <div id="detailPanels" class="detail-panels" hidden>
+      <div class="detail-grid">
+        <section class="schedule-panel">
+          <header>
+            <h2>일정 타임테이블</h2>
+          </header>
+          {% if timed_tasks %}
+          <div class="timetable" role="table">
+            <div class="timetable-header" role="row">
+              <span class="timetable-heading" role="columnheader">시간</span>
+              <span class="timetable-heading" role="columnheader">지출</span>
+              <span class="timetable-heading" role="columnheader">할 일</span>
+            </div>
+            <div class="timetable-body">
+              {% for entry in timed_tasks %}
+              <article class="timetable-row" role="row">
+                <div class="timetable-time" role="cell">
+                  <strong>{{ entry.start_local|date:"H:i"|default:"--:--" }}</strong>
+                  {% if entry.end_local %}
+                  <span class="timetable-time-range">~ {{ entry.end_local|date:"H:i" }}</span>
+                  {% endif %}
+                </div>
+                <div class="timetable-expense" role="cell">
+                  {% if entry.transactions %}
+                  {% for tx in entry.transactions %}
+                  <div class="expense-chip">
+                    <span class="expense-name">{{ tx.category.name }}</span>
+                    <strong class="expense-amount">{{ tx.amount }}</strong>
+                  </div>
+                  {% endfor %}
+                  {% else %}
+                  <span class="empty">지출 없음</span>
+                  {% endif %}
+                </div>
+                <div class="timetable-task" role="cell">
+                  <div class="task-card">
+                    <h3>{{ entry.task.title }}</h3>
+                    {% if entry.task.description %}<p class="desc">{{ entry.task.description }}</p>{% endif %}
+                  </div>
+                </div>
+              </article>
+              {% endfor %}
+            </div>
+          </div>
+          {% else %}
+          <p class="empty">선택한 날짜에 시간이 설정된 일정이 없습니다.</p>
+          {% endif %}
+
+          {% if untimed_tasks %}
+          <!-- 시간 정보가 없는 할 일을 별도로 묶어준다. -->
+          <div class="untimed-section">
+            <h3>시간 외 할 일</h3>
+            <ul class="untimed-list">
+              {% for entry in untimed_tasks %}
               <li>
-                <span>{{ tx.category.name }}</span>
-                <span>{{ tx.amount }}</span>
+                <div>
+                  <strong>{{ entry.task.title }}</strong>
+                  {% if entry.task.description %}<p>{{ entry.task.description }}</p>{% endif %}
+                </div>
+                <div class="untimed-expense">
+                  {% if entry.transactions %}
+                  {% for tx in entry.transactions %}
+                  <span>{{ tx.category.name }} {{ tx.amount }}</span>
+                  {% endfor %}
+                  {% else %}
+                  <span class="empty">지출 없음</span>
+                  {% endif %}
+                </div>
               </li>
               {% endfor %}
             </ul>
           </div>
           {% endif %}
-          {% endwith %}
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">선택한 날짜에 등록된 일정이 없습니다.</p>
-    {% endif %}
-  </section>
+        </section>
 
-  <section class="ledger-panel">
-    <header>
-      <h2>가계부 기록</h2>
-      <div class="ledger-actions">
-        <!-- 팝업을 띄우기 위한 트리거 버튼 -->
-        <button type="button" data-open="scheduleDialog">일정 + 지출 추가</button>
-        <button type="button" data-open="transactionDialog">지출만 추가</button>
+        <section class="ledger-panel">
+          <header>
+            <h2>가계부 기록</h2>
+            <div class="ledger-actions">
+              <!-- 팝업을 띄우기 위한 트리거 버튼 -->
+              <button type="button" data-open="scheduleDialog">일정 + 지출 추가</button>
+              <button type="button" data-open="transactionDialog">지출만 추가</button>
+            </div>
+          </header>
+          <div class="transaction-list">
+            {% if loose_transactions %}
+            <h3 class="loose-title">일정 외 지출</h3>
+            {% for tx in loose_transactions %}
+            <article>
+              <header>
+                <span class="time">{{ tx.occurred_at|date:"H:i" }}</span>
+                <span class="amount">{{ tx.amount }}</span>
+              </header>
+              <p>{{ tx.category.name }} · {{ tx.account.name }}</p>
+              {% if tx.memo %}<p class="memo">{{ tx.memo }}</p>{% endif %}
+            </article>
+            {% endfor %}
+            {% else %}
+            <p class="empty">일정과 분리된 지출이 없습니다.</p>
+            {% endif %}
+          </div>
+        </section>
       </div>
-    </header>
-    <div class="transaction-list">
-      {% for tx in transactions %}
-      <article>
-        <header>
-          <span class="time">{{ tx.occurred_at|date:"H:i" }}</span>
-          <span class="amount">{{ tx.amount }}</span>
-        </header>
-        <p>{{ tx.category.name }} · {{ tx.account.name }}</p>
-        {% if tx.task %}<p class="linked">연결 일정: {{ tx.task.title }}</p>{% endif %}
-        {% if tx.memo %}<p class="memo">{{ tx.memo }}</p>{% endif %}
-      </article>
-      {% empty %}
-      <p class="empty">오늘은 아직 기록된 소비가 없습니다.</p>
-      {% endfor %}
-    </div>
 
-    <dialog id="scheduleDialog" class="planner-dialog">
-      <form method="post" class="form-card">
-        {% csrf_token %}
-        <input type="hidden" name="form_type" value="schedule_entry"/>
-        <header>
-          <h3>일정과 함께 기록하기</h3>
-          <button type="button" class="close" data-close>×</button>
-        </header>
-        <label>제목<input name="title" placeholder="예: 점심 약속" required/></label>
-        <label>설명<textarea name="description" rows="2" placeholder="세부 사항을 메모하세요."></textarea></label>
-        <div class="time-grid">
-          <label>시작<input type="time" name="start_time" required/></label>
-          <label>종료<input type="time" name="end_time"/></label>
-        </div>
-        <div class="amount-grid">
-          <label>계좌
-            <select name="account">
-              <option value="">선택 안 함</option>
-              {% for account in accounts %}
-              <option value="{{ account.id }}">{{ account.name }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label>분류
-            <select name="category">
-              <option value="">선택 안 함</option>
-              {% for category in categories %}
-              <option value="{{ category.id }}">{{ category.name }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
-        </div>
-        <label>메모<input name="memo" placeholder="필요하면 메모를 남겨주세요."/></label>
-        <footer>
-          <button type="submit">일정 + 지출 저장</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="transactionDialog" class="planner-dialog">
-      <form method="post" class="form-card">
-        {% csrf_token %}
-        <input type="hidden" name="form_type" value="loose_transaction"/>
-        <header>
-          <h3>단독 지출 추가</h3>
-          <button type="button" class="close" data-close>×</button>
-        </header>
-        <div class="time-grid">
-          <label>시간<input type="time" name="occurred_time" required/></label>
-          <label>금액<input type="number" step="0.01" name="amount" required/></label>
-        </div>
-        <label>계좌
-          <select name="account" required>
-            {% for account in accounts %}
-            <option value="{{ account.id }}">{{ account.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>분류
-          <select name="category" required>
-            {% for category in categories %}
-            <option value="{{ category.id }}">{{ category.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>메모<input name="memo" placeholder="어떤 소비였나요?"/></label>
-        <footer>
-          <button type="submit">지출만 저장</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <noscript>
-      <div class="ledger-forms">
-        <!-- 자바스크립트가 없는 환경을 위한 폴백 폼 -->
-        <h3>일정과 함께 기록하기</h3>
+      <dialog id="scheduleDialog" class="planner-dialog">
         <form method="post" class="form-card">
           {% csrf_token %}
           <input type="hidden" name="form_type" value="schedule_entry"/>
+          <header>
+            <h3>일정과 함께 기록하기</h3>
+            <button type="button" class="close" data-close>×</button>
+          </header>
           <label>제목<input name="title" placeholder="예: 점심 약속" required/></label>
           <label>설명<textarea name="description" rows="2" placeholder="세부 사항을 메모하세요."></textarea></label>
           <div class="time-grid">
@@ -206,13 +225,20 @@
             <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
           </div>
           <label>메모<input name="memo" placeholder="필요하면 메모를 남겨주세요."/></label>
-          <button type="submit">일정 + 지출 저장</button>
+          <footer>
+            <button type="submit">일정 + 지출 저장</button>
+          </footer>
         </form>
+      </dialog>
 
-        <h3>단독 지출 추가</h3>
+      <dialog id="transactionDialog" class="planner-dialog">
         <form method="post" class="form-card">
           {% csrf_token %}
           <input type="hidden" name="form_type" value="loose_transaction"/>
+          <header>
+            <h3>단독 지출 추가</h3>
+            <button type="button" class="close" data-close>×</button>
+          </header>
           <div class="time-grid">
             <label>시간<input type="time" name="occurred_time" required/></label>
             <label>금액<input type="number" step="0.01" name="amount" required/></label>
@@ -232,10 +258,76 @@
             </select>
           </label>
           <label>메모<input name="memo" placeholder="어떤 소비였나요?"/></label>
-          <button type="submit">지출만 저장</button>
+          <footer>
+            <button type="submit">지출만 저장</button>
+          </footer>
         </form>
-      </div>
-    </noscript>
+      </dialog>
+
+      <noscript>
+        <div class="ledger-forms">
+          <!-- 자바스크립트가 없는 환경을 위한 폴백 폼 -->
+          <h3>일정과 함께 기록하기</h3>
+          <form method="post" class="form-card">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="schedule_entry"/>
+            <label>제목<input name="title" placeholder="예: 점심 약속" required/></label>
+            <label>설명<textarea name="description" rows="2" placeholder="세부 사항을 메모하세요."></textarea></label>
+            <div class="time-grid">
+              <label>시작<input type="time" name="start_time" required/></label>
+              <label>종료<input type="time" name="end_time"/></label>
+            </div>
+            <div class="amount-grid">
+              <label>계좌
+                <select name="account">
+                  <option value="">선택 안 함</option>
+                  {% for account in accounts %}
+                  <option value="{{ account.id }}">{{ account.name }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>분류
+                <select name="category">
+                  <option value="">선택 안 함</option>
+                  {% for category in categories %}
+                  <option value="{{ category.id }}">{{ category.name }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
+            </div>
+            <label>메모<input name="memo" placeholder="필요하면 메모를 남겨주세요."/></label>
+            <button type="submit">일정 + 지출 저장</button>
+          </form>
+
+          <h3>단독 지출 추가</h3>
+          <form method="post" class="form-card">
+            {% csrf_token %}
+            <input type="hidden" name="form_type" value="loose_transaction"/>
+            <div class="time-grid">
+              <label>시간<input type="time" name="occurred_time" required/></label>
+              <label>금액<input type="number" step="0.01" name="amount" required/></label>
+            </div>
+            <label>계좌
+              <select name="account" required>
+                {% for account in accounts %}
+                <option value="{{ account.id }}">{{ account.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>분류
+              <select name="category" required>
+                {% for category in categories %}
+                <option value="{{ category.id }}">{{ category.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>메모<input name="memo" placeholder="어떤 소비였나요?"/></label>
+            <button type="submit">지출만 저장</button>
+          </form>
+        </div>
+      </noscript>
+    </div>
   </section>
 </div>
 
@@ -261,6 +353,24 @@
         }
       });
     });
+
+    // 더보기 버튼으로 상세 패널을 토글한다.
+    const toggleButton = document.getElementById('toggleDetails');
+    const detailPanels = document.getElementById('detailPanels');
+    if (toggleButton && detailPanels) {
+      toggleButton.addEventListener('click', () => {
+        const expanded = toggleButton.getAttribute('data-expanded') === 'true';
+        const nextState = !expanded;
+        toggleButton.setAttribute('data-expanded', nextState ? 'true' : 'false');
+        toggleButton.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+        toggleButton.textContent = nextState ? '접기' : '더보기';
+        if (nextState) {
+          detailPanels.removeAttribute('hidden');
+        } else {
+          detailPanels.setAttribute('hidden', '');
+        }
+      });
+    }
   });
 </script>
 
@@ -281,8 +391,12 @@
     color: #4f5d75;
     margin: 0.35rem 0 0;
   }
-  .date-selector input[type="date"] {
-    min-width: 200px;
+  .selected-date-chip {
+    background: #111111;
+    color: #ffffff;
+    border-radius: 999px;
+    padding: 0.5rem 1.25rem;
+    font-weight: 600;
   }
   .form-errors {
     /* 에러 피드백 역시 밝은 배경에 어울리도록 수정한다. */
@@ -315,12 +429,165 @@
   .insight-cards strong {
     font-size: 1.5rem;
   }
-  .planner-grid {
+  .planner-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
     gap: 2rem;
+    align-items: start;
   }
-  .schedule-panel, .ledger-panel {
+  .calendar-panel {
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid #e5e7eb;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+  .calendar-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+  }
+  .calendar-nav {
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 999px;
+    background: #f1f3f5;
+    color: #111111;
+    text-decoration: none;
+    font-size: 1.5rem;
+    border: 1px solid #e5e7eb;
+  }
+  .calendar-nav:hover {
+    background: #e6ebf0;
+  }
+  .calendar-grid {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .calendar-grid th,
+  .calendar-grid td {
+    text-align: center;
+    padding: 0.5rem 0.25rem;
+  }
+  .day-cell a {
+    display: grid;
+    justify-items: center;
+    gap: 0.35rem;
+    text-decoration: none;
+    color: inherit;
+    padding: 0.5rem 0.25rem;
+    border-radius: 12px;
+  }
+  .day-cell.is-out a {
+    color: #adb5bd;
+  }
+  .day-cell.is-today a {
+    border: 1px solid #4f5d75;
+  }
+  .day-cell.is-selected a {
+    background: #111111;
+    color: #ffffff;
+  }
+  .day-number {
+    font-weight: 600;
+  }
+  .task-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.75rem;
+    height: 1.5rem;
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    background: #f1f3f5;
+    color: #111111;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .day-cell.is-selected .task-dot {
+    background: #ffffff;
+    color: #111111;
+  }
+  .day-cell.is-out .task-dot {
+    background: #edf2f7;
+    color: #94a3b8;
+  }
+  .task-summary-panel {
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid #e5e7eb;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .task-summary-panel header h2 {
+    margin: 0;
+  }
+  .task-summary-panel header p {
+    margin: 0.35rem 0 0;
+    color: #6b7280;
+  }
+  .task-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .task-list li {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    background: #f8f9fb;
+    border-radius: 16px;
+    border: 1px solid #e5e7eb;
+    padding: 0.75rem 1rem;
+  }
+  .task-list li.empty {
+    justify-content: center;
+    text-align: center;
+    color: #6b7280;
+  }
+  .task-time {
+    font-weight: 600;
+    min-width: 4.5rem;
+  }
+  .task-info p {
+    margin: 0.25rem 0 0;
+    color: #6b7280;
+  }
+  .more-button {
+    background: #111111;
+    color: #ffffff;
+    border-radius: 999px;
+    border: none;
+    font-weight: 600;
+    padding: 0.5rem 1.5rem;
+    cursor: pointer;
+  }
+  .detail-panels {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.75rem;
+  }
+  .schedule-panel,
+  .ledger-panel {
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
@@ -349,33 +616,85 @@
   .ledger-actions button:hover {
     background: #2d2d2d;
   }
-  .schedule-panel header h2, .ledger-panel header h2 {
+  .schedule-panel header h2,
+  .ledger-panel header h2 {
     margin: 0;
   }
-  .timeline {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  .timetable {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    overflow: hidden;
+    background: #ffffff;
   }
-  .timeline li {
+  .timetable-header,
+  .timetable-row {
     display: grid;
-    grid-template-columns: 120px 1fr;
-    gap: 1.5rem;
+    grid-template-columns: 120px 1fr 1.2fr;
     align-items: stretch;
   }
-  .time-range {
+  .timetable-header {
+    background: #ffd6f5;
+    color: #111111;
+    font-weight: 700;
+    padding: 0.75rem 1.25rem;
+    gap: 1rem;
+  }
+  .timetable-heading {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .timetable-body {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+  }
+  .timetable-row {
+    gap: 1rem;
+    border-top: 1px solid #f1f3f5;
+    padding: 1rem 1.25rem;
+    background: #ffffff;
+  }
+  .timetable-time {
+    display: flex;
+    flex-direction: column;
     font-weight: 600;
     color: #334155;
     letter-spacing: 0.05em;
+    gap: 0.35rem;
   }
-  .time-range .arrow {
-    opacity: 0.5;
+  .timetable-time-range {
+    font-size: 0.9rem;
+    color: #6b7280;
+  }
+  .timetable-expense {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .timetable-task {
+    display: flex;
+    align-items: stretch;
+  }
+  .expense-chip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fdf2ff;
+    border: 1px solid #f5d0fe;
+    border-radius: 12px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
+  }
+  .expense-name {
+    color: #4b5563;
+  }
+  .expense-amount {
+    color: #c026d3;
+  }
+  .timetable-task .task-card {
+    height: 100%;
   }
   .task-card {
     background: #ffffff;
@@ -390,32 +709,58 @@
     margin: 0 0 1rem 0;
     color: #4b5563;
   }
-  .linked-expense {
-    margin-top: 1rem;
-    padding-top: 0.75rem;
-    border-top: 1px dashed #d0d7de;
+  .untimed-section {
+    margin-top: 1.5rem;
+    background: #fff7fb;
+    border: 1px solid #fbcfe8;
+    border-radius: 18px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
-  .linked-expense h4 {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.95rem;
-    color: #4f5d75;
+  .untimed-section h3 {
+    margin: 0;
   }
-  .linked-expense ul {
+  .untimed-list {
+    list-style: none;
     margin: 0;
     padding: 0;
-    list-style: none;
-    display: grid;
-    gap: 0.35rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
-  .linked-expense li {
+  .untimed-list li {
     display: flex;
     justify-content: space-between;
-    font-size: 0.95rem;
+    gap: 1rem;
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    border: 1px solid #f8bbd0;
+  }
+  .untimed-list li p {
+    margin: 0.35rem 0 0;
+    color: #6b7280;
+  }
+  .untimed-expense {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-weight: 600;
+    color: #c026d3;
+    min-width: 140px;
+    text-align: right;
   }
   .transaction-list {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+  .transaction-list .loose-title {
+    margin: 0;
+    font-size: 1rem;
+    color: #334155;
   }
   .transaction-list article {
     background: #ffffff;
@@ -506,7 +851,8 @@
     font-weight: 600;
     color: #111111;
   }
-  .time-grid, .amount-grid {
+  .time-grid,
+  .amount-grid {
     display: grid;
     gap: 0.75rem;
   }
@@ -516,16 +862,56 @@
   .amount-grid {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
-  @media (max-width: 960px) {
-    .planner-grid {
+  @media (max-width: 1080px) {
+    .planner-layout {
       grid-template-columns: 1fr;
     }
-    .timeline li {
+    .detail-grid {
       grid-template-columns: 1fr;
     }
-    .time-range {
+    .timetable {
+      border-radius: 18px;
+    }
+    .timetable-header,
+    .timetable-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .timetable-header {
+      display: none;
+    }
+    .timetable-row {
+      border-top: 1px solid #f1f3f5;
+      padding: 1rem;
+    }
+    .timetable-time,
+    .timetable-expense,
+    .timetable-task {
+      gap: 0.25rem;
+    }
+    .timetable-expense {
+      order: 3;
+    }
+    .timetable-task {
+      order: 2;
+    }
+  }
+  @media (max-width: 640px) {
+    .planner-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .selected-date-chip {
+      align-self: stretch;
+      text-align: center;
+    }
+    .calendar-header {
       flex-direction: row;
-      justify-content: space-between;
+    }
+    .task-list li {
+      flex-direction: column;
+    }
+    .task-time {
+      min-width: 0;
     }
   }
 </style>
