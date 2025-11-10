@@ -6,8 +6,11 @@ import calendar
 from datetime import date, datetime, time, timedelta
 
 from django.db.models import Q, Sum
-from django.shortcuts import redirect, render
+from django.http import HttpResponseBadRequest
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required
 
 from finance.models import Account, Category, Transaction
 from tasks.models import Task
@@ -43,12 +46,19 @@ def _process_planner_forms(request, selected_date, success_base_path):
         description = request.POST.get('description', '').strip()
         start_time = request.POST.get('start_time')
         end_time = request.POST.get('end_time')
+        # 일정과 함께 기록할 부가 정보
+        extra_todo_title = request.POST.get('extra_todo_title', '').strip()
+        extra_todo_description = request.POST.get('extra_todo_description', '').strip()
 
         if not title:
             form_errors.append('일정 제목을 입력해주세요.')
 
         if not start_time:
             form_errors.append('시작 시간을 입력해주세요.')
+
+        # 할 일 설명만 입력하는 경우를 막기 위해 제목 검증을 추가한다.
+        if extra_todo_description and not extra_todo_title:
+            form_errors.append('할 일을 추가하려면 제목을 입력해주세요.')
 
         if not form_errors:
             start_at = _combine_with_date(selected_date, start_time, time(hour=9))
@@ -92,6 +102,15 @@ def _process_planner_forms(request, selected_date, success_base_path):
                 if transaction_kwargs:
                     Transaction.objects.create(task=task, **transaction_kwargs)
 
+                if extra_todo_title:
+                    # 일정과 별도로 진행할 할 일을 선택적으로 함께 만든다.
+                    Task.objects.create(
+                        owner=request.user,
+                        title=extra_todo_title,
+                        description=extra_todo_description,
+                        status='todo',
+                    )
+
                 return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
 
     elif form_type == 'loose_transaction':
@@ -117,6 +136,23 @@ def _process_planner_forms(request, selected_date, success_base_path):
                 amount=amount,
                 memo=memo,
                 occurred_at=occurred_at,
+            )
+            return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
+
+    elif form_type == 'todo_item':
+        # 하루 할 일 인박스에 바로 추가하는 입력 처리
+        title = request.POST.get('title', '').strip()
+        description = request.POST.get('description', '').strip()
+
+        if not title:
+            form_errors.append('할 일 제목을 입력해주세요.')
+
+        if not form_errors:
+            Task.objects.create(
+                owner=request.user,
+                title=title,
+                description=description,
+                status='todo',
             )
             return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
 
@@ -241,7 +277,6 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
             'label': f"{hour:02d}:00",
             'events': [],
             'transactions': [],
-            'todos': [],
             'is_after_hours': False,
         }
         for hour in range(24)
@@ -264,19 +299,15 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
         # 연결된 지출은 해당 시간대의 지출 열에 함께 노출한다.
         hour_block['transactions'].extend(entry['transactions'])
 
-        # 할 일 열에는 체크박스로 표현하기 위해 Task 객체만 별도로 모은다.
-        hour_block['todos'].append(entry['task'])
-
     hourly_schedule = [hourly_map[hour] for hour in range(24)]
 
-    # 24시 이후에 처리할 일정 외 지출과 시간 외 할 일을 위한 가상의 행을 추가한다.
+    # 일정 외 지출을 보여주기 위한 가상의 행을 추가한다.
     hourly_schedule.append(
         {
             'hour': 24,
-            'label': '24:00 이후',
+            'label': '기타',
             'events': [],
             'transactions': loose_transactions,
-            'todos': [entry['task'] for entry in untimed_tasks],
             'is_after_hours': True,
         }
     )
@@ -382,3 +413,22 @@ def planner_day_detail(request):
         include_calendar=False,
     )
     return render(request, 'planner/day_detail.html', context)
+
+
+@login_required
+@require_POST
+def toggle_todo_status(request, task_id):
+    """할 일 상태를 체크박스 변경으로 즉시 갱신한다."""
+
+    task = get_object_or_404(Task, pk=task_id, owner=request.user)
+
+    new_status = request.POST.get('status')
+    # 투두 화면에서는 완료/미완료 두 상태만 제공한다.
+    if new_status not in {'todo', 'done'}:
+        return HttpResponseBadRequest('올바른 상태가 아닙니다.')
+
+    task.status = new_status
+    task.save(update_fields=['status', 'updated_at'])
+
+    redirect_target = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/planner/'
+    return redirect(redirect_target)

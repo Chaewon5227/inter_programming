@@ -28,19 +28,25 @@
 </div>
 {% endif %}
 
+<div class="detail-actions">
+  <!-- 일정/지출/할 일 추가 진입 버튼 -->
+  <button type="button" data-open="scheduleDialog">일정 추가</button>
+  <button type="button" data-open="transactionDialog">지출 추가</button>
+  <button type="button" data-open="todoDialog">할 일 추가</button>
+</div>
+
 <div class="detail-grid">
   <section class="schedule-panel">
     <header>
       <h2>일정 타임테이블</h2>
-      <p>선택한 날짜의 일정을 시간 순으로 정리했습니다.</p>
+      <p>선택한 날짜의 일정과 지출을 시간 순으로 정리했습니다.</p>
     </header>
-    <!-- 24시간 타임라인을 일정/지출/할 일로 나눠 표시한다. -->
+    <!-- 24시간 타임라인을 일정/지출 두 축으로 정리한다. -->
     <div class="timeline-grid" role="table">
       <div class="timeline-header" role="row">
         <span class="timeline-heading" role="columnheader">시간</span>
         <span class="timeline-heading" role="columnheader">일정</span>
         <span class="timeline-heading" role="columnheader">지출</span>
-        <span class="timeline-heading" role="columnheader">할 일</span>
       </div>
       <div class="timeline-body">
         {% for block in hourly_schedule %}
@@ -82,41 +88,39 @@
             <span class="empty" aria-hidden="true">—</span>
             {% endif %}
           </div>
-          <div class="timeline-cell todo" role="cell">
-            {% if block.todos %}
-            {% for todo in block.todos %}
-            <label class="todo-item">
-              <input type="checkbox" disabled {% if todo.status == 'done' %}checked{% endif %}/>
-              <span>
-                <strong>{{ todo.title }}</strong>
-                {% if todo.description %}<small>{{ todo.description }}</small>{% endif %}
-              </span>
-            </label>
-            {% endfor %}
-            {% elif block.is_after_hours %}
-            <span class="empty">시간 외 할 일 없음</span>
-            {% else %}
-            <span class="empty" aria-hidden="true">—</span>
-            {% endif %}
-          </div>
         </div>
         {% endfor %}
       </div>
     </div>
   </section>
 
-  <section class="ledger-panel">
+  <section class="todo-panel">
     <header>
-      <h2>가계부 기록</h2>
-    <div class="ledger-actions">
-      <!-- 모달을 열기 위한 버튼 -->
-      <button type="button" data-open="scheduleDialog">일정 + 지출 추가</button>
-      <button type="button" data-open="transactionDialog">지출만 추가</button>
-    </div>
+      <h2>할 일 목록</h2>
+      <p>일정과 별도로 관리하는 할 일을 체크해서 완료 처리하세요.</p>
     </header>
-    <div class="transaction-guide">
-      <p>하단의 <strong>24:00 이후</strong> 행에서 일정 외 지출과 시간 외 할 일을 함께 확인할 수 있습니다.</p>
-      <p>필요한 내용은 위 버튼을 눌러 언제든지 추가하세요.</p>
+    <div class="todo-list">
+      {% if untimed_tasks %}
+      {% for entry in untimed_tasks %}
+      {% with todo=entry.task %}
+      <form method="post" action="{% url 'planner_toggle_todo' todo.id %}" class="todo-item-form{% if todo.status == 'done' %} is-done{% endif %}" data-todo-form>
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}"/>
+        <input type="hidden" name="status" value="{{ todo.status }}" data-todo-status/>
+        <label class="todo-item">
+          <input type="checkbox" {% if todo.status == 'done' %}checked{% endif %} data-todo-checkbox/>
+          <span>
+            <strong>{{ todo.title }}</strong>
+            {% if todo.description %}<small>{{ todo.description }}</small>{% endif %}
+          </span>
+        </label>
+        <button type="submit" class="todo-submit">상태 저장</button>
+      </form>
+      {% endwith %}
+      {% endfor %}
+      {% else %}
+      <p class="empty">등록된 할 일이 없습니다.</p>
+      {% endif %}
     </div>
   </section>
 </div>
@@ -126,7 +130,7 @@
     {% csrf_token %}
     <input type="hidden" name="form_type" value="schedule_entry"/>
     <header>
-      <h3>일정과 함께 기록하기</h3>
+      <h3>일정 추가</h3>
       <button type="button" class="close" data-close>×</button>
     </header>
     <label>제목<input name="title" placeholder="예: 점심 약속" required/></label>
@@ -135,28 +139,36 @@
       <label>시작<input type="time" name="start_time" required/></label>
       <label>종료<input type="time" name="end_time"/></label>
     </div>
-    <div class="amount-grid">
-      <label>계좌
-        <select name="account">
-          <option value="">선택 안 함</option>
-          {% for account in accounts %}
-          <option value="{{ account.id }}">{{ account.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>분류
-        <select name="category">
-          <option value="">선택 안 함</option>
-          {% for category in categories %}
-          <option value="{{ category.id }}">{{ category.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
-    </div>
-    <label>메모<input name="memo" placeholder="필요하면 메모를 남겨주세요."/></label>
+    <fieldset class="optional-group">
+      <legend>지출 함께 기록 (선택)</legend>
+      <div class="amount-grid">
+        <label>계좌
+          <select name="account">
+            <option value="">선택 안 함</option>
+            {% for account in accounts %}
+            <option value="{{ account.id }}">{{ account.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>분류
+          <select name="category">
+            <option value="">선택 안 함</option>
+            {% for category in categories %}
+            <option value="{{ category.id }}">{{ category.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
+      </div>
+      <label>메모<input name="memo" placeholder="필요하면 메모를 남겨주세요."/></label>
+    </fieldset>
+    <fieldset class="optional-group">
+      <legend>할 일 함께 추가 (선택)</legend>
+      <label>할 일 제목<input name="extra_todo_title" placeholder="예: 준비물 챙기기"/></label>
+      <label>할 일 설명<textarea name="extra_todo_description" rows="2" placeholder="할 일 설명을 적어주세요."></textarea></label>
+    </fieldset>
     <footer>
-      <button type="submit">일정 + 지출 저장</button>
+      <button type="submit">일정 저장</button>
     </footer>
   </form>
 </dialog>
@@ -166,7 +178,7 @@
     {% csrf_token %}
     <input type="hidden" name="form_type" value="loose_transaction"/>
     <header>
-      <h3>단독 지출 추가</h3>
+      <h3>지출 추가</h3>
       <button type="button" class="close" data-close>×</button>
     </header>
     <div class="time-grid">
@@ -189,15 +201,31 @@
     </label>
     <label>메모<input name="memo" placeholder="어떤 소비였나요?"/></label>
     <footer>
-      <button type="submit">지출만 저장</button>
+      <button type="submit">지출 저장</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="todoDialog" class="planner-dialog">
+  <form method="post" class="form-card">
+    {% csrf_token %}
+    <input type="hidden" name="form_type" value="todo_item"/>
+    <header>
+      <h3>할 일 추가</h3>
+      <button type="button" class="close" data-close>×</button>
+    </header>
+    <label>할 일 제목<input name="title" placeholder="예: 회의 준비" required/></label>
+    <label>할 일 설명<textarea name="description" rows="3" placeholder="완료 조건이나 메모를 적어주세요."></textarea></label>
+    <footer>
+      <button type="submit">할 일 저장</button>
     </footer>
   </form>
 </dialog>
 
 <noscript>
-  <div class="ledger-forms">
+  <div class="fallback-forms">
     <!-- 자바스크립트를 사용할 수 없을 때의 폼 -->
-    <h3>일정과 함께 기록하기</h3>
+    <h3>일정 추가</h3>
     <form method="post" class="form-card">
       {% csrf_token %}
       <input type="hidden" name="form_type" value="schedule_entry"/>
@@ -207,30 +235,38 @@
         <label>시작<input type="time" name="start_time" required/></label>
         <label>종료<input type="time" name="end_time"/></label>
       </div>
-      <div class="amount-grid">
-        <label>계좌
-          <select name="account">
-            <option value="">선택 안 함</option>
-            {% for account in accounts %}
-            <option value="{{ account.id }}">{{ account.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>분류
-          <select name="category">
-            <option value="">선택 안 함</option>
-            {% for category in categories %}
-            <option value="{{ category.id }}">{{ category.name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
-      </div>
-      <label>메모<input name="memo" placeholder="필요하면 메모를 남겨주세요."/></label>
-      <button type="submit">일정 + 지출 저장</button>
+      <fieldset class="optional-group">
+        <legend>지출 함께 기록 (선택)</legend>
+        <div class="amount-grid">
+          <label>계좌
+            <select name="account">
+              <option value="">선택 안 함</option>
+              {% for account in accounts %}
+              <option value="{{ account.id }}">{{ account.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>분류
+            <select name="category">
+              <option value="">선택 안 함</option>
+              {% for category in categories %}
+              <option value="{{ category.id }}">{{ category.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
+        </div>
+        <label>메모<input name="memo" placeholder="필요하면 메모를 남겨주세요."/></label>
+      </fieldset>
+      <fieldset class="optional-group">
+        <legend>할 일 함께 추가 (선택)</legend>
+        <label>할 일 제목<input name="extra_todo_title" placeholder="예: 준비물 챙기기"/></label>
+        <label>할 일 설명<textarea name="extra_todo_description" rows="2" placeholder="할 일 설명을 적어주세요."></textarea></label>
+      </fieldset>
+      <button type="submit">일정 저장</button>
     </form>
 
-    <h3>단독 지출 추가</h3>
+    <h3>지출 추가</h3>
     <form method="post" class="form-card">
       {% csrf_token %}
       <input type="hidden" name="form_type" value="loose_transaction"/>
@@ -253,7 +289,16 @@
         </select>
       </label>
       <label>메모<input name="memo" placeholder="어떤 소비였나요?"/></label>
-      <button type="submit">지출만 저장</button>
+      <button type="submit">지출 저장</button>
+    </form>
+
+    <h3>할 일 추가</h3>
+    <form method="post" class="form-card">
+      {% csrf_token %}
+      <input type="hidden" name="form_type" value="todo_item"/>
+      <label>할 일 제목<input name="title" placeholder="예: 회의 준비" required/></label>
+      <label>할 일 설명<textarea name="description" rows="3" placeholder="완료 조건이나 메모를 적어주세요."></textarea></label>
+      <button type="submit">할 일 저장</button>
     </form>
   </div>
 </noscript>
@@ -278,6 +323,20 @@
         if (dialog) {
           dialog.close();
         }
+      });
+    });
+
+    // 할 일 체크박스를 클릭하면 즉시 상태를 반영한다.
+    document.querySelectorAll('[data-todo-form]').forEach((form) => {
+      const checkbox = form.querySelector('[data-todo-checkbox]');
+      const statusInput = form.querySelector('[data-todo-status]');
+      if (!checkbox || !statusInput) {
+        return;
+      }
+
+      checkbox.addEventListener('change', () => {
+        statusInput.value = checkbox.checked ? 'done' : 'todo';
+        form.submit();
       });
     });
   });
@@ -343,13 +402,31 @@
   .form-errors p {
     margin: 0.25rem 0;
   }
+  .detail-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.75rem;
+    flex-wrap: wrap;
+  }
+  .detail-actions button {
+    background: #111111;
+    color: #ffffff;
+    border-radius: 999px;
+    border: 1px solid #111111;
+    padding: 0.45rem 1.15rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .detail-actions button:hover {
+    background: #2d2d2d;
+  }
   .detail-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
     gap: 2rem;
   }
   .schedule-panel,
-  .ledger-panel {
+  .todo-panel {
     background: #ffffff;
     border: 1px solid #e5e7eb;
     border-radius: 22px;
@@ -359,31 +436,13 @@
     gap: 1.5rem;
   }
   .schedule-panel header h2,
-  .ledger-panel header h2 {
+  .todo-panel header h2 {
     margin: 0;
   }
   .schedule-panel header p,
-  .ledger-panel header p {
+  .todo-panel header p {
     margin: 0.35rem 0 0;
     color: #6b7280;
-  }
-  .ledger-actions {
-    display: flex;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  .ledger-actions button {
-    background: #111111;
-    color: #ffffff;
-    border-radius: 999px;
-    border: 1px solid #111111;
-    padding: 0.45rem 1.1rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .ledger-actions button:hover {
-    background: #2d2d2d;
   }
   .timeline-grid {
     display: flex;
@@ -396,7 +455,7 @@
   .timeline-header,
   .timeline-row {
     display: grid;
-    grid-template-columns: 120px repeat(3, minmax(0, 1fr));
+    grid-template-columns: 120px repeat(2, minmax(0, 1fr));
     align-items: stretch;
     gap: 1.25rem;
   }
@@ -481,49 +540,67 @@
     font-weight: 600;
     width: fit-content;
   }
-  .timeline-cell.expense {
-    gap: 0.5rem;
+  .timeline-cell .empty {
+    color: #94a3b8;
+    font-size: 0.85rem;
   }
-  .timeline-cell.todo {
+  .todo-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .todo-item-form {
+    display: flex;
+    align-items: center;
     gap: 0.75rem;
+    background: #f8f9fb;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 0.7rem 0.9rem;
+  }
+  .todo-item-form.is-done {
+    opacity: 0.65;
   }
   .todo-item {
     display: flex;
     gap: 0.6rem;
     align-items: flex-start;
-    background: #f8f9fb;
-    border: 1px solid #e5e7eb;
-    border-radius: 16px;
-    padding: 0.6rem 0.8rem;
+    flex: 1;
   }
   .todo-item input {
-    margin-top: 0.2rem;
+    margin-top: 0.25rem;
   }
   .todo-item span {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.25rem;
   }
   .todo-item strong {
     font-size: 0.95rem;
+  }
+  .todo-item-form.is-done strong {
+    text-decoration: line-through;
   }
   .todo-item small {
     color: #6b7280;
     font-size: 0.8rem;
   }
-  .timeline-cell .empty {
-    color: #94a3b8;
+  .todo-submit {
+    background: transparent;
+    border: none;
+    color: #6b7280;
     font-size: 0.85rem;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
   }
-  .transaction-guide {
-    background: #f8f9fb;
-    border-radius: 18px;
-    border: 1px solid #e5e7eb;
-    padding: 1.25rem 1.5rem;
-    color: #4f5d75;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+  .todo-submit:focus-visible {
+    outline: 2px solid #111111;
+    outline-offset: 2px;
+  }
+  .todo-list .empty {
+    color: #94a3b8;
+    font-size: 0.9rem;
   }
   .planner-dialog {
     border: none;
@@ -563,7 +640,20 @@
   .planner-dialog footer button {
     width: 100%;
   }
-  .ledger-forms {
+  .optional-group {
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .optional-group legend {
+    padding: 0 0.35rem;
+    font-weight: 600;
+    color: #4f5d75;
+  }
+  .fallback-forms {
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
