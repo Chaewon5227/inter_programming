@@ -171,6 +171,7 @@
 </dialog>
 
 <dialog id="transactionDialog" class="planner-dialog">
+  <!-- 시간 입력 없이 하루 지출 인박스로 쌓이도록 단순한 입력 폼을 제공한다. -->
   <form method="post" class="form-card">
     {% csrf_token %}
     <input type="hidden" name="form_type" value="loose_transaction"/>
@@ -178,10 +179,7 @@
       <h3>지출 추가</h3>
       <button type="button" class="close" data-close>×</button>
     </header>
-    <div class="time-grid">
-      <label>시간<input type="time" name="occurred_time" required/></label>
-      <label>금액<input type="number" step="0.01" name="amount" required/></label>
-    </div>
+    <label>금액<input type="number" step="0.01" name="amount" required/></label>
     <label>계좌
       <select name="account" required>
         {% for account in accounts %}
@@ -267,10 +265,7 @@
     <form method="post" class="form-card">
       {% csrf_token %}
       <input type="hidden" name="form_type" value="loose_transaction"/>
-      <div class="time-grid">
-        <label>시간<input type="time" name="occurred_time" required/></label>
-        <label>금액<input type="number" step="0.01" name="amount" required/></label>
-      </div>
+      <label>금액<input type="number" step="0.01" name="amount" required/></label>
       <label>계좌
         <select name="account" required>
           {% for account in accounts %}
