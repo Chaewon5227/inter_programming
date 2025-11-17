@@ -109,6 +109,8 @@ def _process_planner_forms(request, selected_date, success_base_path):
                         title=extra_todo_title,
                         description=extra_todo_description,
                         status='todo',
+                        # 일정과 분리된 하루 단위 할 일임을 명시적으로 저장
+                        todo_date=selected_date,
                     )
 
                 return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
@@ -153,6 +155,8 @@ def _process_planner_forms(request, selected_date, success_base_path):
                 title=title,
                 description=description,
                 status='todo',
+                # 시간과 무관한 할 일이 하루 인박스에 들어갈 수 있도록 날짜 저장
+                todo_date=selected_date,
             )
             return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
 
@@ -181,8 +185,9 @@ def _build_calendar_data(selected_date, user):
         .filter(
             Q(start_at__date__range=(month_start, month_end))
             | Q(due_at__date__range=(month_start, month_end))
+            | Q(todo_date__range=(month_start, month_end))
         )
-        .only('id', 'start_at', 'due_at')
+        .only('id', 'start_at', 'due_at', 'todo_date')
     )
 
     tasks_by_day: dict[date, set[int]] = {}
@@ -194,6 +199,9 @@ def _build_calendar_data(selected_date, user):
             localized_date = timezone.localtime(dt_field).date()
             if month_start <= localized_date <= month_end:
                 tasks_by_day.setdefault(localized_date, set()).add(task.id)
+        # 시간 정보 없이 하루에 묶이는 할 일(todo_date)도 별도로 카운트한다.
+        if task.todo_date and month_start <= task.todo_date <= month_end:
+            tasks_by_day.setdefault(task.todo_date, set()).add(task.id)
 
     calendar_weeks = []
     for week in cal.monthdatescalendar(selected_date.year, selected_date.month):
@@ -231,6 +239,8 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
         .filter(
             Q(start_at__date=selected_date)
             | Q(due_at__date=selected_date)
+            # 하루 할 일(todo_date)도 날짜 기준으로 포함시켜 인박스에 노출한다.
+            | Q(todo_date=selected_date)
         )
         .prefetch_related('linked_transactions__category', 'linked_transactions__account')
         .order_by('start_at', 'due_at', 'title')
