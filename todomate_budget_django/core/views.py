@@ -50,6 +50,10 @@ def _process_planner_forms(request, selected_date, success_base_path):
         extra_todo_title = request.POST.get('extra_todo_title', '').strip()
         extra_todo_description = request.POST.get('extra_todo_description', '').strip()
 
+        # 파싱 과정에서 예외가 발생하는 경우를 대비해 기본 값을 먼저 준비한다.
+        start_at = None
+        due_at = None
+
         if not title:
             form_errors.append('일정 제목을 입력해주세요.')
 
@@ -61,12 +65,16 @@ def _process_planner_forms(request, selected_date, success_base_path):
             form_errors.append('할 일을 추가하려면 제목을 입력해주세요.')
 
         if not form_errors:
-            start_at = _combine_with_date(selected_date, start_time, time(hour=9))
-            # 종료 시간은 비어 있다면 1시간 뒤로 잡는다.
-            if end_time:
-                due_at = _combine_with_date(selected_date, end_time, time(hour=10))
-            else:
-                due_at = start_at + timedelta(hours=1)
+            try:
+                start_at = _combine_with_date(selected_date, start_time, time(hour=9))
+                # 종료 시간은 비어 있다면 1시간 뒤로 잡는다.
+                if end_time:
+                    due_at = _combine_with_date(selected_date, end_time, time(hour=10))
+                else:
+                    due_at = start_at + timedelta(hours=1)
+            except ValueError:
+                # HTML 입력이 깨졌을 때 500 오류 대신 사용자 피드백을 남긴다.
+                form_errors.append('시간 형식을 다시 확인해주세요.')
 
             # 가계부 입력 값에 대한 검증을 먼저 수행한다.
             amount = request.POST.get('amount')
@@ -123,14 +131,20 @@ def _process_planner_forms(request, selected_date, success_base_path):
         memo = request.POST.get('memo', '').strip()
         occurred_time = request.POST.get('occurred_time')
 
-        if not occurred_time:
-            form_errors.append('소비 시간을 입력해주세요.')
-
         if not (account_id and category_id and amount):
             form_errors.append('계정, 분류, 금액을 모두 입력해주세요.')
 
         if not form_errors:
-            occurred_at = _combine_with_date(selected_date, occurred_time, time(hour=12))
+            # 시간 입력이 없더라도 하루 맨 아래 섹션에 묶일 수 있도록 기본값을 사용한다.
+            occurred_at = _combine_with_date(selected_date, None, time(hour=23, minute=59))
+
+            if occurred_time:
+                try:
+                    occurred_at = _combine_with_date(selected_date, occurred_time, time(hour=23, minute=59))
+                except ValueError:
+                    # 잘못된 형식은 무시하고 기본 시각으로 저장한다.
+                    pass
+
             Transaction.objects.create(
                 owner=request.user,
                 account_id=account_id,
