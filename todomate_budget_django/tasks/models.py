@@ -29,6 +29,8 @@ class Task(models.Model):
     start_at = models.DateTimeField(null=True, blank=True)
     due_at = models.DateTimeField(null=True, blank=True)
     is_all_day = models.BooleanField(default=False)
+    # 하루 단위로 관리할 할 일 전용 날짜 필드 (시간 기반 일정과 분리 관리)
+    todo_date = models.DateField(null=True, blank=True)
     tags = models.ManyToManyField(Tag, blank=True, related_name="tasks")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
