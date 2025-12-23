@@ -6,7 +6,7 @@
     <!-- 요약 화면으로 돌아가는 내비게이션 링크 -->
     <a class="back-link" href="{% url 'planner_dashboard' %}?date={{ selected_date|date:'Y-m-d' }}">← 대시보드로 돌아가기</a>
     <h1>{{ selected_date|date:"Y년 n월 j일" }} 상세 일정</h1>
-    <p class="subtitle">시간대별 일정과 지출을 한 화면에서 확인하세요.</p>
+    <p class="subtitle">시간대별 일정과 거래(지출/수입)를 한 화면에서 확인하세요.</p>
   </div>
   <div class="daily-cards">
     <article>
@@ -30,9 +30,9 @@
 {% endif %}
 
 <div class="detail-actions">
-  <!-- 일정/지출/할 일 추가 진입 버튼 -->
+  <!-- 일정/거래/할 일 추가 진입 버튼 -->
   <button type="button" data-open="scheduleDialog">일정 추가</button>
-  <button type="button" data-open="transactionDialog">지출 추가</button>
+  <button type="button" data-open="transactionDialog">거래 추가</button>
   <button type="button" data-open="todoDialog">할 일 추가</button>
 </div>
 
@@ -40,14 +40,14 @@
   <section class="schedule-panel">
     <header>
       <h2>일정 타임테이블</h2>
-      <p>선택한 날짜의 일정과 지출을 시간 순으로 정리했습니다.</p>
+      <p>선택한 날짜의 일정과 거래를 시간 순으로 정리했습니다.</p>
     </header>
-    <!-- 24시간 타임라인을 일정/지출/할 일 세 축으로 정리한다. -->
+    <!-- 24시간 타임라인을 일정/거래/할 일 세 축으로 정리한다. -->
     <div class="timeline-grid" role="table">
       <div class="timeline-header" role="row">
         <span class="timeline-heading" role="columnheader">시간</span>
         <span class="timeline-heading" role="columnheader">일정</span>
-        <span class="timeline-heading" role="columnheader">지출</span>
+        <span class="timeline-heading" role="columnheader">거래</span>
         <span class="timeline-heading" role="columnheader">할 일</span>
       </div>
       <div class="timeline-body">
@@ -95,30 +95,33 @@
           <div class="timeline-cell expense" role="cell">
             {% if block.transactions %}
             {% for tx in block.transactions %}
-            <div class="expense-chip">
-              <span class="expense-name">{{ tx.category.name }}</span>
-              <strong class="expense-amount">{{ tx.amount }}</strong>
-              <div class="chip-actions">
-                <button type="button" class="link-button" data-open="editTransactionDialog"
-                  data-transaction-id="{{ tx.id }}"
-                  data-account-id="{{ tx.account_id }}"
-                  data-category-id="{{ tx.category_id }}"
-                  data-amount="{{ tx.amount }}"
-                  data-memo="{{ tx.memo|default_if_none:''|escape }}"
-                  data-occurred-time="{{ tx.occurred_at|localtime|date:'H:i' }}">
-                  수정
-                </button>
-                <form method="post" class="inline-form" onsubmit="return confirm('이 지출을 삭제할까요?');">
-                  {% csrf_token %}
-                  <input type="hidden" name="form_type" value="delete_transaction"/>
-                  <input type="hidden" name="transaction_id" value="{{ tx.id }}"/>
-                  <button type="submit" class="link-button danger">삭제</button>
-                </form>
+            {% with kind=tx.category.kind|default:"expense" %}
+              <div class="transaction-chip {% if kind == 'income' %}is-income{% else %}is-expense{% endif %}">
+                <span class="transaction-kind">{% if kind == 'income' %}수입{% else %}지출{% endif %}</span>
+                <span class="transaction-name">{{ tx.category.name|default:"미분류" }}</span>
+                <strong class="transaction-amount">{{ tx.amount }}</strong>
+                <div class="chip-actions">
+                  <button type="button" class="link-button" data-open="editTransactionDialog"
+                    data-transaction-id="{{ tx.id }}"
+                    data-account-id="{{ tx.account_id }}"
+                    data-amount="{{ tx.amount }}"
+                    data-memo="{{ tx.memo|default_if_none:''|escape }}"
+                    data-occurred-time="{{ tx.occurred_at|localtime|date:'H:i' }}"
+                    data-transaction-kind="{{ kind }}">
+                    수정
+                  </button>
+                  <form method="post" class="inline-form" onsubmit="return confirm('이 거래를 삭제할까요?');">
+                    {% csrf_token %}
+                    <input type="hidden" name="form_type" value="delete_transaction"/>
+                    <input type="hidden" name="transaction_id" value="{{ tx.id }}"/>
+                    <button type="submit" class="link-button danger">삭제</button>
+                  </form>
+                </div>
               </div>
-            </div>
+            {% endwith %}
             {% endfor %}
             {% elif block.is_after_hours %}
-            <span class="empty">일정 외 지출 없음</span>
+            <span class="empty">일정 외 거래 없음</span>
             {% else %}
             <span class="empty" aria-hidden="true">—</span>
             {% endif %}
@@ -186,7 +189,7 @@
       <label>종료<input type="time" name="end_time"/></label>
     </div>
     <fieldset class="optional-group">
-      <legend>지출 함께 기록 (선택)</legend>
+      <legend>거래 함께 기록 (선택)</legend>
       <div class="amount-grid">
         <label>계좌
           <select name="account">
@@ -196,12 +199,10 @@
             {% endfor %}
           </select>
         </label>
-        <label>분류
-          <select name="category">
-            <option value="">선택 안 함</option>
-            {% for category in categories %}
-            <option value="{{ category.id }}">{{ category.name }}</option>
-            {% endfor %}
+        <label>유형
+          <select name="transaction_kind">
+            <option value="expense">지출</option>
+            <option value="income">수입</option>
           </select>
         </label>
         <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
@@ -241,15 +242,21 @@
 </dialog>
 
 <dialog id="transactionDialog" class="planner-dialog">
-  <!-- 시간 입력 없이 하루 지출 인박스로 쌓이도록 단순한 입력 폼을 제공한다. -->
+  <!-- 시간 입력 없이 하루 지출/수입을 인박스로 쌓이도록 단순한 입력 폼을 제공한다. -->
   <form method="post" class="form-card">
     {% csrf_token %}
     <input type="hidden" name="form_type" value="loose_transaction"/>
     <header>
-      <h3>지출 추가</h3>
+      <h3>거래 추가</h3>
       <button type="button" class="close" data-close>×</button>
     </header>
     <label>금액<input type="number" step="0.01" name="amount" required/></label>
+    <label>유형
+      <select name="transaction_kind" required>
+        <option value="expense">지출</option>
+        <option value="income">수입</option>
+      </select>
+    </label>
     <label>계좌
       <select name="account" required>
         {% for account in accounts %}
@@ -257,16 +264,9 @@
         {% endfor %}
       </select>
     </label>
-    <label>분류
-      <select name="category" required>
-        {% for category in categories %}
-        <option value="{{ category.id }}">{{ category.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>메모<input name="memo" placeholder="어떤 소비였나요?"/></label>
+    <label>메모<input name="memo" placeholder="어떤 거래였나요?"/></label>
     <footer>
-      <button type="submit">지출 저장</button>
+      <button type="submit">거래 저장</button>
     </footer>
   </form>
 </dialog>
@@ -277,10 +277,16 @@
     <input type="hidden" name="form_type" value="update_transaction"/>
     <input type="hidden" name="transaction_id" data-field="transaction_id"/>
     <header>
-      <h3>지출 수정</h3>
+      <h3>거래 수정</h3>
       <button type="button" class="close" data-close>×</button>
     </header>
     <label>금액<input type="number" step="0.01" name="amount" data-field="amount" required/></label>
+    <label>유형
+      <select name="transaction_kind" data-field="transaction_kind" required>
+        <option value="expense">지출</option>
+        <option value="income">수입</option>
+      </select>
+    </label>
     <label>계좌
       <select name="account" data-field="account" required>
         {% for account in accounts %}
@@ -288,14 +294,7 @@
         {% endfor %}
       </select>
     </label>
-    <label>분류
-      <select name="category" data-field="category" required>
-        {% for category in categories %}
-        <option value="{{ category.id }}">{{ category.name }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>메모<input name="memo" data-field="memo" placeholder="어떤 소비였나요?"/></label>
+    <label>메모<input name="memo" data-field="memo" placeholder="어떤 거래였나요?"/></label>
     <label>시간<input type="time" name="occurred_time" data-field="occurred_time"/></label>
     <footer>
       <button type="submit">변경 저장</button>
@@ -357,7 +356,7 @@
         <label>종료<input type="time" name="end_time"/></label>
       </div>
       <fieldset class="optional-group">
-        <legend>지출 함께 기록 (선택)</legend>
+        <legend>거래 함께 기록 (선택)</legend>
         <div class="amount-grid">
           <label>계좌
             <select name="account">
@@ -367,12 +366,10 @@
               {% endfor %}
             </select>
           </label>
-          <label>분류
-            <select name="category">
-              <option value="">선택 안 함</option>
-              {% for category in categories %}
-              <option value="{{ category.id }}">{{ category.name }}</option>
-              {% endfor %}
+          <label>유형
+            <select name="transaction_kind">
+              <option value="expense">지출</option>
+              <option value="income">수입</option>
             </select>
           </label>
           <label>금액<input type="number" step="0.01" name="amount" placeholder="0"/></label>
@@ -387,11 +384,17 @@
       <button type="submit">일정 저장</button>
     </form>
 
-    <h3>지출 추가</h3>
+    <h3>거래 추가</h3>
     <form method="post" class="form-card">
       {% csrf_token %}
       <input type="hidden" name="form_type" value="loose_transaction"/>
       <label>금액<input type="number" step="0.01" name="amount" required/></label>
+      <label>유형
+        <select name="transaction_kind" required>
+          <option value="expense">지출</option>
+          <option value="income">수입</option>
+        </select>
+      </label>
       <label>계좌
         <select name="account" required>
           {% for account in accounts %}
@@ -399,15 +402,8 @@
           {% endfor %}
         </select>
       </label>
-      <label>분류
-        <select name="category" required>
-          {% for category in categories %}
-          <option value="{{ category.id }}">{{ category.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>메모<input name="memo" placeholder="어떤 소비였나요?"/></label>
-      <button type="submit">지출 저장</button>
+      <label>메모<input name="memo" placeholder="어떤 거래였나요?"/></label>
+      <button type="submit">거래 저장</button>
     </form>
 
     <h3>할 일 추가</h3>
@@ -585,7 +581,7 @@
   .timeline-header,
   .timeline-row {
     display: grid;
-    grid-template-columns: 120px repeat(3, minmax(0, 1fr));  /* 시간 + 일정/지출/할 일 세 개의 열을 배치한다. */
+    grid-template-columns: 120px repeat(3, minmax(0, 1fr));  /* 시간 + 일정/거래/할 일 세 개의 열을 배치한다. */
     align-items: stretch;
     gap: 1.25rem;
   }
@@ -658,17 +654,34 @@
     color: #6b7280;
     font-size: 0.9rem;
   }
-  .expense-chip {
+  .transaction-chip {
     display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.35rem 0.7rem;
+    align-items: flex-start;
+    gap: 0.45rem;
+    padding: 0.5rem 0.8rem;
     border-radius: 999px;
-    background: #111111;
-    color: #ffffff;
-    font-size: 0.85rem;
-    font-weight: 600;
+    background: #f8f9fb;
+    border: 1px solid #e5e7eb;
+    color: #111111;
+    font-size: 0.9rem;
+    font-weight: 500;
     width: fit-content;
+  }
+  .transaction-chip.is-expense {
+    border-color: #fee2e2;
+    background: #fef2f2;
+  }
+  .transaction-chip.is-income {
+    border-color: #dcfce7;
+    background: #f0fdf4;
+  }
+  .transaction-kind {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #111827;
+  }
+  .transaction-amount {
+    font-weight: 700;
   }
   .timeline-cell .empty {
     color: #94a3b8;

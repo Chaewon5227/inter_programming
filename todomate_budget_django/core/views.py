@@ -32,6 +32,22 @@ def _parse_selected_date(request):
     return timezone.localdate()
 
 
+def _get_default_category(owner, kind: str) -> Category:
+    """지출/수입 입력 시 분류를 생략해도 사용할 기본 카테고리를 찾는다."""
+
+    labels = {
+        'expense': '미분류 지출',
+        'income': '미분류 수입',
+    }
+    normalized_kind = kind if kind in labels else 'expense'
+    category, _ = Category.objects.get_or_create(
+        owner=owner,
+        kind=normalized_kind,
+        name=labels[normalized_kind],
+    )
+    return category
+
+
 def _process_planner_forms(request, selected_date, success_base_path):
     """하루 단위 플래너에서 사용하는 폼을 공통으로 처리한다."""
 
@@ -82,18 +98,21 @@ def _process_planner_forms(request, selected_date, success_base_path):
             # 가계부 입력 값에 대한 검증을 먼저 수행한다.
             amount = request.POST.get('amount')
             account_id = request.POST.get('account') or None
-            category_id = request.POST.get('category') or None
             memo = request.POST.get('memo', '').strip()
             transaction_kwargs = None
 
+            transaction_kind = request.POST.get('transaction_kind', 'expense')
+
             if amount:
-                if not (account_id and category_id):
-                    form_errors.append('금액을 입력했다면 계정과 분류도 선택해주세요.')
-                else:
+                if transaction_kind not in {'expense', 'income'}:
+                    form_errors.append('수입/지출 유형을 다시 확인해주세요.')
+                if not account_id:
+                    form_errors.append('금액을 입력했다면 계정을 선택해주세요.')
+                if not form_errors:
                     transaction_kwargs = dict(
                         owner=request.user,
                         account_id=account_id,
-                        category_id=category_id,
+                        category=_get_default_category(request.user, transaction_kind),
                         amount=amount,
                         memo=memo,
                         occurred_at=start_at,
@@ -161,15 +180,19 @@ def _process_planner_forms(request, selected_date, success_base_path):
                 return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
 
     elif form_type == 'loose_transaction':
-        # 일정과 무관한 단독 지출 입력 처리
+        # 일정과 무관한 단독 거래 입력 처리
         account_id = request.POST.get('account') or None
-        category_id = request.POST.get('category') or None
         amount = request.POST.get('amount')
         memo = request.POST.get('memo', '').strip()
         occurred_time = request.POST.get('occurred_time')
 
-        if not (account_id and category_id and amount):
-            form_errors.append('계정, 분류, 금액을 모두 입력해주세요.')
+        transaction_kind = request.POST.get('transaction_kind', 'expense')
+
+        if transaction_kind not in {'expense', 'income'}:
+            form_errors.append('수입/지출 유형을 다시 확인해주세요.')
+
+        if not (account_id and amount):
+            form_errors.append('계정과 금액을 모두 입력해주세요.')
 
         if not form_errors:
             # 시간 입력이 없더라도 하루 맨 아래 섹션에 묶일 수 있도록 기본값을 사용한다.
@@ -185,7 +208,7 @@ def _process_planner_forms(request, selected_date, success_base_path):
             Transaction.objects.create(
                 owner=request.user,
                 account_id=account_id,
-                category_id=category_id,
+                category=_get_default_category(request.user, transaction_kind),
                 amount=amount,
                 memo=memo,
                 occurred_at=occurred_at,
@@ -197,19 +220,20 @@ def _process_planner_forms(request, selected_date, success_base_path):
         transaction = get_object_or_404(Transaction, pk=transaction_id, owner=request.user)
 
         account_id = request.POST.get('account') or None
-        category_id = request.POST.get('category') or None
         amount = request.POST.get('amount')
         memo = request.POST.get('memo', '').strip()
         occurred_time = request.POST.get('occurred_time')
 
-        if not (account_id and category_id and amount):
-            form_errors.append('계정, 분류, 금액을 모두 입력해주세요.')
+        transaction_kind = request.POST.get('transaction_kind') or (transaction.category.kind if transaction.category else 'expense')
+
+        if transaction_kind not in {'expense', 'income'}:
+            form_errors.append('수입/지출 유형을 다시 확인해주세요.')
+
+        if not (account_id and amount):
+            form_errors.append('계정과 금액을 모두 입력해주세요.')
 
         if account_id and not Account.objects.filter(owner=request.user, pk=account_id).exists():
             form_errors.append('계정 정보를 다시 확인해주세요.')
-
-        if category_id and not Category.objects.filter(owner=request.user, pk=category_id).exists():
-            form_errors.append('분류 정보를 다시 확인해주세요.')
 
         if not form_errors:
             fallback_time = timezone.localtime(transaction.occurred_at).time() if transaction.occurred_at else time(hour=23, minute=59)
@@ -219,7 +243,7 @@ def _process_planner_forms(request, selected_date, success_base_path):
                 form_errors.append('시간 형식을 다시 확인해주세요.')
             else:
                 transaction.account_id = account_id
-                transaction.category_id = category_id
+                transaction.category = _get_default_category(request.user, transaction_kind)
                 transaction.amount = amount
                 transaction.memo = memo
                 transaction.occurred_at = occurred_at
@@ -454,7 +478,6 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
     }
 
     accounts = Account.objects.filter(owner=request.user)
-    expense_categories = Category.objects.filter(owner=request.user, kind='expense')
 
     context = {
         'selected_date': selected_date,
@@ -465,7 +488,6 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
         'hourly_schedule': hourly_schedule,
         'daily_totals': daily_totals,
         'accounts': accounts,
-        'categories': expense_categories,
         'form_errors': form_errors,
     }
 
