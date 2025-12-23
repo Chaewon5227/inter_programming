@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>마이 페이지</h2>
+
+<section style="display:grid; gap:2rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+  <article style="background:#ffffff; padding:1.5rem; border-radius:16px; border:1px solid #e5e7eb;">
+    <h3>내 정보</h3>
+    <p><strong>아이디</strong><br/>{{ user.username }}</p>
+    <p><strong>이메일</strong><br/>{% if user.email %}{{ user.email }}{% else %}-{% endif %}</p>
+    <p><strong>가입일</strong><br/>{{ user.date_joined|date:"Y-m-d H:i" }}</p>
+  </article>
+
+  <article style="background:#ffffff; padding:1.5rem; border-radius:16px; border:1px solid #e5e7eb;">
+    <h3>비밀번호 변경</h3>
+    {% if password_success %}
+      <p style="color:#0f5132; background:#d1e7dd; padding:0.8rem 1rem; border-radius:10px;">{{ password_success }}</p>
+    {% endif %}
+    {% if password_errors %}
+      <ul style="color:#b91c1c; background:#fee2e2; padding:0.8rem 1rem; border-radius:10px;">
+        {% for err in password_errors %}
+          <li>{{ err }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="form_type" value="change_password"/>
+      <label>현재 비밀번호
+        <input type="password" name="current_password" required/>
+      </label>
+      <label>새 비밀번호
+        <input type="password" name="new_password" required/>
+      </label>
+      <label>새 비밀번호 확인
+        <input type="password" name="new_password_confirm" required/>
+      </label>
+      <button type="submit">비밀번호 변경</button>
+    </form>
+  </article>
+</section>
+
+<section style="margin-top:2rem; background:#ffffff; padding:1.5rem; border-radius:16px; border:1px solid #e5e7eb;">
+  <h3>계좌 추가</h3>
+  {% if account_success %}
+    <p style="color:#0f5132; background:#d1e7dd; padding:0.8rem 1rem; border-radius:10px;">{{ account_success }}</p>
+  {% endif %}
+  {% if account_errors %}
+    <ul style="color:#b91c1c; background:#fee2e2; padding:0.8rem 1rem; border-radius:10px;">
+      {% for err in account_errors %}
+        <li>{{ err }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  <form method="post" style="margin-bottom:1rem;">
+    {% csrf_token %}
+    <input type="hidden" name="form_type" value="add_account"/>
+    <div style="display:grid; gap:1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items:end;">
+      <label>계좌 이름
+        <input name="name" required placeholder="예) 주거래 통장"/>
+      </label>
+      <label>종류
+        <select name="type" required>
+          {% for value, label in account_types %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>초기 잔액
+        <input type="number" step="0.01" min="0" name="balance" value="0" required/>
+      </label>
+    </div>
+    <button type="submit">계좌 추가</button>
+  </form>
+
+  <table>
+    <thead>
+      <tr><th>이름</th><th>종류</th><th style="text-align:right">잔액</th></tr>
+    </thead>
+    <tbody>
+      {% for account in accounts %}
+        <tr>
+          <td>{{ account.name }}</td>
+          <td>{{ account.get_type_display }}</td>
+          <td style="text-align:right">{{ account.balance }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="3">등록된 계좌가 없습니다.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
