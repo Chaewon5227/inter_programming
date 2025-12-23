@@ -123,6 +123,40 @@ def _process_planner_forms(request, selected_date, success_base_path):
 
                 return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
 
+    elif form_type == 'update_schedule':
+        task_id = request.POST.get('task_id')
+        task = get_object_or_404(Task, pk=task_id, owner=request.user)
+
+        title = request.POST.get('title', '').strip()
+        description = request.POST.get('description', '').strip()
+        start_time = request.POST.get('start_time')
+        end_time = request.POST.get('end_time')
+
+        if not title:
+            form_errors.append('일정 제목을 입력해주세요.')
+
+        if not start_time:
+            form_errors.append('시작 시간을 입력해주세요.')
+
+        if not form_errors:
+            try:
+                start_at = _combine_with_date(selected_date, start_time, time(hour=9))
+                if end_time:
+                    due_at = _combine_with_date(selected_date, end_time, time(hour=10))
+                else:
+                    due_at = start_at + timedelta(hours=1)
+            except ValueError:
+                form_errors.append('시간 형식을 다시 확인해주세요.')
+            else:
+                task.title = title
+                task.description = description
+                task.start_at = start_at
+                task.due_at = due_at
+                task.todo_date = None
+                task.is_all_day = False
+                task.save(update_fields=['title', 'description', 'start_at', 'due_at', 'todo_date', 'is_all_day', 'updated_at'])
+                return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
+
     elif form_type == 'loose_transaction':
         # 일정과 무관한 단독 지출 입력 처리
         account_id = request.POST.get('account') or None
@@ -155,6 +189,40 @@ def _process_planner_forms(request, selected_date, success_base_path):
             )
             return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
 
+    elif form_type == 'update_transaction':
+        transaction_id = request.POST.get('transaction_id')
+        transaction = get_object_or_404(Transaction, pk=transaction_id, owner=request.user)
+
+        account_id = request.POST.get('account') or None
+        category_id = request.POST.get('category') or None
+        amount = request.POST.get('amount')
+        memo = request.POST.get('memo', '').strip()
+        occurred_time = request.POST.get('occurred_time')
+
+        if not (account_id and category_id and amount):
+            form_errors.append('계정, 분류, 금액을 모두 입력해주세요.')
+
+        if account_id and not Account.objects.filter(owner=request.user, pk=account_id).exists():
+            form_errors.append('계정 정보를 다시 확인해주세요.')
+
+        if category_id and not Category.objects.filter(owner=request.user, pk=category_id).exists():
+            form_errors.append('분류 정보를 다시 확인해주세요.')
+
+        if not form_errors:
+            fallback_time = timezone.localtime(transaction.occurred_at).time() if transaction.occurred_at else time(hour=23, minute=59)
+            try:
+                occurred_at = _combine_with_date(selected_date, occurred_time, fallback_time)
+            except ValueError:
+                form_errors.append('시간 형식을 다시 확인해주세요.')
+            else:
+                transaction.account_id = account_id
+                transaction.category_id = category_id
+                transaction.amount = amount
+                transaction.memo = memo
+                transaction.occurred_at = occurred_at
+                transaction.save(update_fields=['account', 'category', 'amount', 'memo', 'occurred_at'])
+                return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
+
     elif form_type == 'todo_item':
         # 하루 할 일 인박스에 바로 추가하는 입력 처리
         title = request.POST.get('title', '').strip()
@@ -173,6 +241,44 @@ def _process_planner_forms(request, selected_date, success_base_path):
                 todo_date=selected_date,
             )
             return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
+
+    elif form_type == 'update_todo':
+        task_id = request.POST.get('task_id')
+        task = get_object_or_404(Task, pk=task_id, owner=request.user)
+
+        title = request.POST.get('title', '').strip()
+        description = request.POST.get('description', '').strip()
+        status = request.POST.get('status', 'todo')
+        valid_statuses = {choice[0] for choice in Task.STATUS_CHOICES}
+
+        if not title:
+            form_errors.append('할 일 제목을 입력해주세요.')
+
+        if status not in valid_statuses:
+            form_errors.append('올바른 상태를 선택해주세요.')
+
+        if not form_errors:
+            task.title = title
+            task.description = description
+            task.status = status
+            task.todo_date = selected_date
+            # 하루 할 일은 시간 기반 일정과 분리하기 위해 시간 정보를 초기화한다.
+            task.start_at = None
+            task.due_at = None
+            task.save(update_fields=['title', 'description', 'status', 'todo_date', 'start_at', 'due_at', 'updated_at'])
+            return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
+
+    elif form_type == 'delete_task':
+        task_id = request.POST.get('task_id')
+        task = get_object_or_404(Task, pk=task_id, owner=request.user)
+        task.delete()
+        return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
+
+    elif form_type == 'delete_transaction':
+        transaction_id = request.POST.get('transaction_id')
+        transaction = get_object_or_404(Transaction, pk=transaction_id, owner=request.user)
+        transaction.delete()
+        return redirect(f"{success_base_path}?date={selected_date.isoformat()}"), form_errors
 
     return None, form_errors
 
