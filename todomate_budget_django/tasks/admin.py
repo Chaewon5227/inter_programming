@@ -3,8 +3,9 @@ from .models import Task, Tag
 
 @admin.register(Tag)
 class TagAdmin(admin.ModelAdmin):
-    list_display = ("id","name","color")
-    search_fields = ("name",)
+    list_display = ("id","name","owner","color")
+    list_filter = ("owner",)
+    search_fields = ("name","owner__username")
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):

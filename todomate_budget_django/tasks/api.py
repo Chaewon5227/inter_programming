@@ -10,12 +10,17 @@ class IsOwner(permissions.BasePermission):
         return getattr(obj, "owner_id", None) == request.user.id
 
 class TagViewSet(viewsets.ModelViewSet):
-    queryset = Tag.objects.all()
     serializer_class = TagSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsOwner]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["name","id"]
+
+    def get_queryset(self):
+        return Tag.objects.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer

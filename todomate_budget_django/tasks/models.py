@@ -4,8 +4,12 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 class Tag(models.Model):
-    name = models.CharField(max_length=50, unique=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="tags")
+    name = models.CharField(max_length=50)
     color = models.CharField(max_length=7, default="#888888")  # hex color
+
+    class Meta:
+        unique_together = ("owner", "name")
 
     def __str__(self):
         return self.name
