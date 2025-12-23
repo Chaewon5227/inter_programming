@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import calendar
+from decimal import Decimal
 from datetime import date, datetime, time, timedelta
 
 from django.db.models import Q, Sum
@@ -10,7 +11,9 @@ from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 
 from finance.models import Account, Category, Transaction
 from tasks.models import Task
@@ -563,3 +566,91 @@ def toggle_todo_status(request, task_id):
 
     redirect_target = request.POST.get('next') or request.META.get('HTTP_REFERER') or '/planner/'
     return redirect(redirect_target)
+
+
+@login_required
+def my_page(request):
+    """마이페이지: 사용자 정보, 비밀번호 변경, 계좌 추가 기능을 제공한다."""
+
+    user = request.user
+    password_errors: list[str] = []
+    account_errors: list[str] = []
+    password_success: str | None = None
+    account_success: str | None = None
+
+    if request.method == 'POST':
+        form_type = request.POST.get('form_type')
+
+        if form_type == 'change_password':
+            current_password = request.POST.get('current_password', '')
+            new_password = request.POST.get('new_password', '')
+            new_password_confirm = request.POST.get('new_password_confirm', '')
+
+            if not current_password:
+                password_errors.append('현재 비밀번호를 입력해주세요.')
+            elif not user.check_password(current_password):
+                password_errors.append('현재 비밀번호가 올바르지 않습니다.')
+
+            if not new_password:
+                password_errors.append('새 비밀번호를 입력해주세요.')
+
+            if new_password != new_password_confirm:
+                password_errors.append('새 비밀번호 확인이 일치하지 않습니다.')
+
+            if not password_errors:
+                try:
+                    user.set_password(new_password)
+                    user.save(update_fields=['password'])
+                    update_session_auth_hash(request, user)
+                except ValidationError as exc:
+                    password_errors.extend(exc.messages)
+                else:
+                    password_success = '비밀번호가 성공적으로 변경되었습니다.'
+
+        elif form_type == 'add_account':
+            name = request.POST.get('name', '').strip()
+            account_type = request.POST.get('type', '')
+            balance_raw = request.POST.get('balance', '0').strip() or '0'
+
+            if not name:
+                account_errors.append('계좌 이름을 입력해주세요.')
+
+            valid_types = {choice[0] for choice in Account.TYPE_CHOICES}
+            if account_type not in valid_types:
+                account_errors.append('올바른 계좌 종류를 선택해주세요.')
+
+            try:
+                balance = Decimal(balance_raw)
+            except Exception:
+                account_errors.append('잔액은 숫자로 입력해주세요.')
+            else:
+                if balance < 0:
+                    account_errors.append('잔액은 0 이상이어야 합니다.')
+
+            if not account_errors:
+                if Account.objects.filter(owner=user, name=name).exists():
+                    account_errors.append('이미 동일한 이름의 계좌가 있습니다.')
+                else:
+                    Account.objects.create(
+                        owner=user,
+                        name=name,
+                        type=account_type,
+                        balance=balance,
+                    )
+                    account_success = '계좌가 추가되었습니다.'
+
+    accounts = Account.objects.filter(owner=user).order_by('name')
+
+    return render(
+        request,
+        'core/my_page.html',
+        {
+            'user': user,
+            'accounts': accounts,
+            'account_types': Account.TYPE_CHOICES,
+            'password_errors': password_errors,
+            'password_success': password_success,
+            'account_errors': account_errors,
+            'account_success': account_success,
+        },
+    )
