@@ -9,11 +9,6 @@
       {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
     </select>
   </label>
-  <label>Category
-    <select name="category" required>
-      {% for c in categories %}<option value="{{ c.id }}">{{ c.name }} ({{ c.kind }})</option>{% endfor %}
-    </select>
-  </label>
   <label>Related task (optional)
     <select name="task">
       <option value="">-- 일정 미연결 --</option>
