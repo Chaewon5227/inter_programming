@@ -139,6 +139,8 @@ def _process_planner_forms(request, selected_date, success_base_path):
                         title=extra_todo_title,
                         description=extra_todo_description,
                         status='todo',
+                        start_at=start_at,
+                        due_at=due_at,
                         # 일정과 분리된 하루 단위 할 일임을 명시적으로 저장
                         todo_date=selected_date,
                     )
@@ -217,7 +219,11 @@ def _process_planner_forms(request, selected_date, success_base_path):
 
     elif form_type == 'update_transaction':
         transaction_id = request.POST.get('transaction_id')
-        transaction = get_object_or_404(Transaction, pk=transaction_id, owner=request.user)
+        transaction = None
+        if not transaction_id:
+            form_errors.append('수정할 거래 정보를 찾을 수 없습니다. 다시 시도해주세요.')
+        else:
+            transaction = get_object_or_404(Transaction, pk=transaction_id, owner=request.user)
 
         account_id = request.POST.get('account') or None
         amount = request.POST.get('amount')
@@ -376,10 +382,6 @@ def _build_calendar_data(selected_date, user):
 def _build_planner_context(request, selected_date, form_errors, include_calendar=True):
     """대시보드와 상세 페이지에 공통으로 전달할 컨텍스트를 생성한다."""
 
-    # 일정과 거래를 조회할 범위를 하루 단위로 계산한다.
-    day_start = _combine_with_date(selected_date, "00:00", time.min)
-    day_end = _combine_with_date(selected_date, "23:59", time.max)
-
     # 일정은 시작일 또는 마감일이 해당 날짜에 걸쳐 있는 것만 모은다.
     tasks = (
         Task.objects.filter(owner=request.user)
@@ -395,7 +397,7 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
 
     # 선택한 날짜에 발생한 모든 거래를 가져온다.
     transactions = (
-        Transaction.objects.filter(owner=request.user, occurred_at__range=(day_start, day_end))
+        Transaction.objects.filter(owner=request.user, occurred_at__date=selected_date)
         .select_related('account', 'category', 'task')
         .order_by('occurred_at')
     )
@@ -403,6 +405,20 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
     # 타임라인 UI에서 시간을 가진 일정과 그렇지 않은 일정을 분리한다.
     timed_tasks: list[dict[str, object]] = []
     untimed_tasks: list[dict[str, object]] = []
+    after_hours_todos: list[dict[str, object]] = []
+
+    # 0시부터 23시까지의 타임라인 블록을 미리 구성해 둔다.
+    hourly_map: dict[int, dict[str, object]] = {
+        hour: {
+            'hour': hour,
+            'label': f"{hour:02d}:00",
+            'events': [],
+            'transactions': [],
+            'todos': [],  # 시간대별 할 일 열을 함께 노출하기 위해 기본 리스트를 준비한다.
+            'is_after_hours': False,
+        }
+        for hour in range(24)
+    }
 
     for task in tasks:
         # 템플릿에서 반복적으로 지역 시간을 계산하지 않도록 미리 변환해 둔다.
@@ -417,6 +433,16 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
             'transactions': linked_transactions,
         }
 
+        if task.todo_date:
+            reference_time = start_local or end_local
+            if reference_time:
+                hour_block = hourly_map.get(reference_time.hour)
+                if hour_block is not None:
+                    hour_block['todos'].append(task_payload)
+            else:
+                after_hours_todos.append(task_payload)
+            continue
+
         if start_local or end_local:
             timed_tasks.append(task_payload)
         else:
@@ -426,19 +452,6 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
     loose_transactions = [
         tx for tx in transactions if tx.task_id is None
     ]
-
-    # 0시부터 23시까지의 타임라인 블록을 미리 구성해 둔다.
-    hourly_map: dict[int, dict[str, object]] = {
-        hour: {
-            'hour': hour,
-            'label': f"{hour:02d}:00",
-            'events': [],
-            'transactions': [],
-            'todos': [],  # 시간대별 할 일 열을 함께 노출하기 위해 기본 리스트를 준비한다.
-            'is_after_hours': False,
-        }
-        for hour in range(24)
-    }
 
     for entry in timed_tasks:
         # 시작 시간이 없지만 종료 시간이 있는 경우 종료 시각을 기준으로 표시한다.
@@ -464,9 +477,9 @@ def _build_planner_context(request, selected_date, form_errors, include_calendar
         {
             'hour': 24,
             'label': '기타',
-            'events': [],
+            'events': untimed_tasks,
             'transactions': loose_transactions,
-            'todos': untimed_tasks,  # 시간 정보가 없는 할 일은 가장 아래 기타 행에서 묶어 보여준다.
+            'todos': after_hours_todos + untimed_tasks,  # 시간 정보가 없는 할 일은 가장 아래 기타 행에서 묶어 보여준다.
             'is_after_hours': True,
         }
     )
