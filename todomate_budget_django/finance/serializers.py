@@ -20,6 +20,9 @@ class TransactionSerializer(serializers.ModelSerializer):
     task = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.all(), allow_null=True, required=False
     )
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(), allow_null=True, required=False
+    )
 
     class Meta:
         model = Transaction
